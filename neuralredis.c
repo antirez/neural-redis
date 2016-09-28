@@ -287,7 +287,8 @@ void *NRTrainingThreadMain(void *arg) {
                                       nr->test.inputs,
                                       nr->test.outputs,
                                       nr->test.len);
-            printf("%f %f\n", train_error, test_error);
+            // printf("%.21f %.21f\n", train_error, test_error);
+
             if (train_error < past_train_error &&
                 test_error > past_test_error)
             {
@@ -296,6 +297,9 @@ void *NRTrainingThreadMain(void *arg) {
             } else {
                 overfitting_count = 0;
             }
+
+            /* Also stop if the loss is zero in both datasets. */
+            if (train_error < 0.000000000000001 && test_error < 0.000000000000001) break;
         }
 
         cycles++;
