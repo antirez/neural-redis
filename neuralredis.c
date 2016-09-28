@@ -40,28 +40,12 @@
 #include <string.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <sys/time.h>
 
 #include "nn.h"
 
 static RedisModuleType *NRType;
 uint64_t NRNextId = 1; /* Next neural network unique ID. */
-
-struct {
-    RedisModuleString *key; /* Key name of the NN we are training. */
-    int key_db; /* DB ID where the key is. */
-    pthread_t tid;  /* Thread ID of the trainer. */
-    int in_progress;    /* 0 if training terminated. */
-    struct Ann *nn; /* A copy of the NN we are training. */
-} typedef NRPendingTraining;
-
-/* We take an array with NNs currently training in other threads.
- * Every time an NN command is called, we try to see if there are
- * finished trainings, in order to udpate weights of the original
- * NN stored into the key (we work on a copy on the other thread).*/
-#define NR_PENDING_TRAINING_MAX_LEN 32
-static NRPendingTraining NRTrainings[NR_PENDING_TRAINING_MAX_LEN];
-static pthread_mutex_t NRPendingTrainingMutex;
-static int NRPendingTrainingCount = 0; /* Number of pending trainings. */
 
 /* ========================== Internal data structure  ====================== */
 
@@ -70,6 +54,7 @@ static int NRPendingTrainingCount = 0; /* Number of pending trainings. */
 #define NR_FLAG_REGRESSOR (1<<1)        /* NN will be used for regression. */
 #define NR_FLAG_CLASSIFIER (1<<2)       /* NN will be used for classification.*/
 #define NR_FLAG_NORMALIZE (1<<3)        /* Perform input/output normalization.*/
+#define NR_FLAG_AUTO_STOP (1<<4)        /* Auto stop training. */
 
 /* Flags to persist when saving the NN. */
 #define NR_FLAG_TO_PRESIST (NN_FLAG_REGRESSOR| \
@@ -85,12 +70,51 @@ typedef struct NRDataset {
 
 typedef struct {
     uint64_t id;        /* Neural network unique ID. */
+    uint64_t training_total_steps; /* How many steps of trainig the network
+                                      received. A step is a single input/output
+                                      pattern presented to the net (counting
+                                      the same pattern multiple times) */
+    uint64_t training_total_ms;   /* Total milliseconds time of training. */
+    uint64_t training_max_cycles; /* Max cycles of a single training. */
+    uint64_t training_max_ms; /* Max time of a single training. */
     uint32_t flags;     /* NR_FLAG_... */
     uint32_t epochs;    /* Number of training epochs so far. */
     struct Ann *nn;     /* Neural network structure. */
     NRDataset dataset;  /* Training dataset. */
     NRDataset test;     /* Testing dataset. */
 } NRTypeObject;
+
+struct {
+    RedisModuleString *key; /* Key name of the NN we are training.
+                               Set to NULL for unused slots. */
+    int db_id;          /* DB ID where the key is. */
+    pthread_t tid;      /* Thread ID of the trainer. */
+    int in_progress;    /* 0 if training terminated. */
+    NRTypeObject *nr;   /* A copy of the NN we are training. */
+} typedef NRPendingTraining;
+
+/* We take an array with NNs currently training in other threads.
+ * Every time an NN command is called, we try to see if there are
+ * finished trainings, in order to udpate weights of the original
+ * NN stored into the key (we work on a copy on the other thread).*/
+#define NR_PENDING_TRAINING_MAX_LEN 32
+
+static pthread_mutex_t NRPendingTrainingMutex = PTHREAD_MUTEX_INITIALIZER;
+/* All the followings must be accessed after acquiring the mutex. */
+static NRPendingTraining NRTrainings[NR_PENDING_TRAINING_MAX_LEN];
+static int NRPendingTrainingCount = 0; /* Number of pending trainings. */
+
+/* ========================== Low level object API ========================== */
+
+long long NRMilliseconds(void) {
+    struct timeval tv;
+    long long ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((long long)tv.tv_sec)*1000000;
+    ust += tv.tv_usec;
+    return ust/1000;
+}
 
 /* Create a network with the specified parameters. Note that the layers
  * must be specified from the output layer[0] to the input
@@ -132,7 +156,7 @@ void NRTypeInsertData(NRTypeObject *o, double *inputs, double *outputs) {
         } else {
             double fill_a = (double)o->dataset.len / o->dataset.maxlen;
             double fill_b = (double)o->test.len / o->test.maxlen;
-            target = (fill_a < fill_b) ? &o->dataset : &o->test;
+            target = (fill_a <= fill_b) ? &o->dataset : &o->test;
         }
     }
 
@@ -205,14 +229,167 @@ NRTypeObject *NRClone(NRTypeObject *o, int newid) {
     memcpy(copy->dataset.outputs,o->dataset.outputs,sizeof(double)*olen*o->dataset.len);
     memcpy(copy->test.inputs,o->test.inputs,sizeof(double)*ilen*o->test.len);
     memcpy(copy->test.outputs,o->test.outputs,sizeof(double)*olen*o->test.len);
-    return o;
+    return copy;
 }
 
 /* Transfer the weights from the source to the destination NN.
  * This is used after the learning process finished in a different
  * thread in order to transfer the learning back to the orignal
  * NN. */
-void NRTransferWeights(NRTypeObject *dst, NRTypeObject *src) {
+void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src) {
+    if (dst->id != src->id) {
+        RedisModule_Log(ctx,"warning",
+            "NSTransferWeight(): source and destination neural network IDs "
+            "don't match. This is unexpected, probably a bug inside the "
+            "module. Weights not transferred back to the origina NN.");
+        return;
+    }
+
+    /* It would be faster to memcpy just the weight array for each layer,
+     * however this way we access the NN in a more abstract way, and should
+     * be fast enough in most cases. We can always optimized it later. */
+    AnnFree(dst->nn);
+    dst->nn = AnnClone(src->nn);
+    dst->training_total_steps = src->training_total_steps;
+    dst->training_total_ms = src->training_total_ms;
+}
+
+/* Threaded training entry point. */
+void *NRTrainingThreadMain(void *arg) {
+    NRPendingTraining *pt = arg;
+    NRTypeObject *nr = pt->nr;
+    int training_iterations = 1;
+    double past_train_error = 1.0/0;
+    double past_test_error = 1.0/0;
+    int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
+
+    uint64_t cycles;
+    long long start = NRMilliseconds();
+    int overfitting_count = 0;
+    while(1) {
+        long long cycle_start = NRMilliseconds();
+        double test_error;
+        double train_error = AnnTrain(nr->nn,
+                                      nr->dataset.inputs,
+                                      nr->dataset.outputs,
+                                      0,
+                                      training_iterations,
+                                      nr->dataset.len);
+        double elapsed = NRMilliseconds() - cycle_start;
+        nr->training_total_ms += elapsed;
+        nr->training_total_steps += nr->dataset.len*training_iterations;
+
+        /* Evaluate the error in the case of auto training, stop it
+         * once we see that the error in the traning set is decreasing
+         * while the one in the test set is not. */
+        if (auto_stop) {
+            test_error = AnnTestError(nr->nn,
+                                      nr->test.inputs,
+                                      nr->test.outputs,
+                                      nr->test.len);
+            printf("%f %f\n", train_error, test_error);
+            if (train_error < past_train_error &&
+                test_error > past_test_error)
+            {
+                overfitting_count++;
+                if (overfitting_count == 5) break;
+            } else {
+                overfitting_count = 0;
+            }
+        }
+
+        cycles++;
+
+        /* Cycles and milliseconds stop conditions. */
+        if (nr->training_max_cycles && cycles == nr->training_max_cycles)
+            break;
+        if (nr->training_max_ms && NRMilliseconds()-start > nr->training_max_ms)
+            break;
+
+        past_train_error = train_error;
+        past_test_error = test_error;
+    }
+
+    /* Signal that the training process has finished, it's up to the main
+     * thread to cleanup this training slot, copying the weights to the
+     * original neural network and reclaiming memory for the copy we
+     * used to work. */
+    pthread_mutex_lock(&NRPendingTrainingMutex);
+    pt->in_progress = 0;
+    pthread_mutex_unlock(&NRPendingTrainingMutex);
+    return NULL;
+}
+
+/* Start a background training in another thread. Return REDISMODULE_ERR if
+ * there is no free slot for training, as we already reached the maximum of
+ * networks we can train in parallel.
+ *
+ * The 'flags' argument specifies the additional NN flags to pass to the
+ * training ruotine:
+ *
+ *  NR_FLAG_AUTO_STOP -- Automatically stop training on overtraining. */
+int NRStartTraining(RedisModuleCtx *ctx, RedisModuleString *key, int dbid, NRTypeObject *nr) {
+    pthread_mutex_lock(&NRPendingTrainingMutex);
+    if (NRPendingTrainingCount == NR_PENDING_TRAINING_MAX_LEN) {
+        pthread_mutex_unlock(&NRPendingTrainingMutex);
+        return REDISMODULE_ERR;
+    }
+
+    /* Setup our trainig data. */
+    NRPendingTraining *pt = &NRTrainings[NRPendingTrainingCount];
+    pt->key = RedisModule_CreateStringFromString(ctx,key);
+    RedisModule_RetainString(ctx,pt->key);
+    pt->db_id = dbid;
+    pt->in_progress = 1;
+    pt->nr = NRClone(nr,0);
+    if (pthread_create(&pt->tid,NULL,NRTrainingThreadMain,pt) != 0) {
+        RedisModule_Log(ctx,"warning","Unable to create a new pthread in NRStartTraining()");
+        RedisModule_FreeString(ctx,pt->key);
+        pt->key = NULL;
+        NRTypeReleaseObject(pt->nr);
+        pthread_mutex_unlock(&NRPendingTrainingMutex);
+        return REDISMODULE_ERR;
+    }
+    NRPendingTrainingCount++;
+    nr->flags |= NR_FLAG_TRAINING;
+    pthread_mutex_unlock(&NRPendingTrainingMutex);
+    return REDISMODULE_OK;
+}
+
+/* Check if there are threads that terminated the NN training, and
+ * collect the info they computed (that is the new NN). */
+int NRCollectThreads(RedisModuleCtx *ctx) {
+    int collected = 0;
+    pthread_mutex_lock(&NRPendingTrainingMutex);
+    for (int j = 0; j < NRPendingTrainingCount; j++) {
+        NRPendingTraining *pt = &NRTrainings[j];
+        if (pt->in_progress == 0) {
+            /* Training terminated. Let's see if the key
+             * is still there and NN ID matches. */
+            int orig_id = RedisModule_GetSelectedDb(ctx);
+            if (orig_id != pt->db_id) RedisModule_SelectDb(ctx,pt->db_id);
+            RedisModuleKey *key = RedisModule_OpenKey(ctx,pt->key,
+                REDISMODULE_READ|REDISMODULE_WRITE);
+            int type = RedisModule_KeyType(key);
+            if (RedisModule_ModuleTypeGetType(key) == NRType) {
+                NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
+                if (nr->id == pt->nr->id) {
+                    NRTransferWeights(ctx,nr,pt->nr);
+                    nr->flags &= ~NR_FLAG_TRAINING;
+                }
+                RedisModule_FreeString(ctx,pt->key);
+                pt->key = NULL;
+                NRTypeReleaseObject(pt->nr);
+                NRPendingTrainingCount--;
+                memcpy(&NRTrainings[j],&NRTrainings[j+1],
+                    (NRPendingTrainingCount-j)*sizeof(NRTrainings[0]));
+            }
+            if (orig_id != pt->db_id) RedisModule_SelectDb(ctx,orig_id);
+            collected++;
+        }
+    }
+    pthread_mutex_unlock(&NRPendingTrainingMutex);
+    return collected;
 }
 
 /* ================================ Commands =============================== */
@@ -224,6 +401,7 @@ int NRCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     int layers[NR_MAX_LAYERS], num_layers = 0;
     int flags = NR_FLAG_NONE;
     RedisModule_AutoMemory(ctx);
+    NRCollectThreads(ctx);
 
     if (argc < 6) return RedisModule_WrongArity(ctx);
 
@@ -316,10 +494,10 @@ int NRCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 /* NR.RUN key [input1 input2 input3 ... inputN] */
 int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
 
     if (argc < 3) return RedisModule_WrongArity(ctx);
-    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
-        REDISMODULE_READ|REDISMODULE_WRITE);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1], REDISMODULE_READ);
     int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
@@ -352,6 +530,7 @@ int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 /* NR.OBSERVE key input1 [input2 input3 ... inputN] -> output */
 int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
 
     if (argc < 3) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
@@ -406,11 +585,12 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return REDISMODULE_OK;
 }
 
-/* NR.INFO key */
-int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/* NR.TRAIN key [MAXCYCLES <count>] [MAXTIME <count>] [AUTOSTOP] */
+int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
 
-    if (argc != 2) return RedisModule_WrongArity(ctx);
+    if (argc < 2) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
         REDISMODULE_READ|REDISMODULE_WRITE);
     int type = RedisModule_KeyType(key);
@@ -418,8 +598,64 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
+    if (nr->flags & NR_FLAG_TRAINING)
+        return RedisModule_ReplyWithError(ctx,
+            "ERR neural network training already in progress");
 
-    RedisModule_ReplyWithArray(ctx,2*7);
+    nr->training_max_cycles = 0;
+    nr->training_max_ms = 10000;
+    nr->flags &= ~(NR_FLAG_AUTO_STOP);
+
+    for (int j = 2; j < argc; j++) {
+        const char *o = RedisModule_StringPtrLen(argv[j], NULL);
+        long long v;
+        int lastarg = (j == argc-1);
+
+        if (!strcasecmp(o,"autostop")) {
+            nr->flags |= NR_FLAG_AUTO_STOP;
+        } else if (!strcasecmp(o,"maxcycles") && !lastarg) {
+            if (RedisModule_StringToLongLong(argv[++j],&v) != REDISMODULE_OK) {
+                return RedisModule_ReplyWithError(ctx,
+                    "ERR invalid number of cycles");
+            }
+            nr->training_max_cycles = v;
+        } else if (!strcasecmp(o,"maxtime") && !lastarg) {
+            if (RedisModule_StringToLongLong(argv[++j],&v) != REDISMODULE_OK) {
+                return RedisModule_ReplyWithError(ctx,
+                    "ERR invalid number of milliseconds of time");
+            }
+            nr->training_max_ms = v;
+        } else {
+            return RedisModule_ReplyWithError(ctx,
+                "ERR Syntax error in NR.TRAIN");
+        }
+    }
+
+    if (NRStartTraining(ctx,argv[1],RedisModule_GetSelectedDb(ctx),nr) ==
+        REDISMODULE_ERR)
+    {
+        return RedisModule_ReplyWithError(ctx,
+            "ERR Can't train the neural network: "
+            "too many NNs already training");
+    } else {
+        return RedisModule_ReplyWithSimpleString(ctx,"Training has started");
+    }
+}
+
+/* NR.INFO key */
+int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
+
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1], REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    if (RedisModule_ModuleTypeGetType(key) != NRType)
+        return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
+
+    NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
+
+    RedisModule_ReplyWithArray(ctx,2*9);
 
     RedisModule_ReplyWithStringBuffer(ctx,"id",2);
     RedisModule_ReplyWithLongLong(ctx,nr->id);
@@ -446,6 +682,12 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_ReplyWithStringBuffer(ctx,"test-dataset-len",16);
     RedisModule_ReplyWithLongLong(ctx,nr->test.len);
+
+    RedisModule_ReplyWithStringBuffer(ctx,"training-total-steps",20);
+    RedisModule_ReplyWithLongLong(ctx,nr->training_total_steps);
+
+    RedisModule_ReplyWithStringBuffer(ctx,"training-total-ms",17);
+    RedisModule_ReplyWithLongLong(ctx,nr->training_total_ms);
 
     return REDISMODULE_OK;
 }
@@ -522,6 +764,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"nr.info",
         NRInfo_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"nr.train",
+        NRTrain_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
