@@ -19,8 +19,8 @@ all: neuralredis.so testmodule.so
 
 neuralredis.xo: redismodule.h
 
-neuralredis.so: neuralredis.xo
-	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc
+neuralredis.so: neuralredis.xo nn.xo
+	$(LD) -o $@ $< nn.xo $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
 clean:
 	rm -rf *.xo *.so
