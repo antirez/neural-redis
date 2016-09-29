@@ -260,7 +260,6 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     dst->training_total_ms = src->training_total_ms;
     dst->dataset_error = src->dataset_error;
     dst->test_error = src->test_error;
-    dst->flags &= ~NR_FLAG_TO_TRANSFER;
     dst->flags |= src->flags & NR_FLAG_TO_TRANSFER;
 }
 
@@ -279,6 +278,9 @@ void *NRTrainingThreadMain(void *arg) {
     long long start = NRMilliseconds();
     long long cycle_time;
     int overfitting_count = 0;
+    int overfitting_limit = 5;
+
+    nr->flags &= ~NR_FLAG_TO_TRANSFER;
     while(1) {
         long long cycle_start = NRMilliseconds();
         train_error = AnnTrain(nr->nn,
@@ -288,7 +290,6 @@ void *NRTrainingThreadMain(void *arg) {
                                training_iterations,
                                nr->dataset.len);
         cycle_time = NRMilliseconds() - cycle_start;
-        nr->training_total_ms += cycle_time;
         nr->training_total_steps += nr->dataset.len*training_iterations;
 
         /* Evaluate the error in the case of auto training, stop it
@@ -304,16 +305,24 @@ void *NRTrainingThreadMain(void *arg) {
                 test_error > past_test_error)
             {
                 overfitting_count++;
-                if (overfitting_count == 5) {
+                printf("CYCLE %lld: [%d] %f VS %f\n", cycles,overfitting_count,train_error, test_error);
+                if (overfitting_count == overfitting_limit) {
                     nr->flags |= NR_FLAG_OF_DETECTED;
                     break;
                 }
             } else {
+                /* To detect overfitting we want to see it happening
+                 * consecutively two times more the longest sequence
+                 * we saw inverting the trend. */
+                if (overfitting_count+2 > overfitting_limit)
+                    overfitting_limit = overfitting_count+2;
                 overfitting_count = 0;
+                printf("!YCLE %lld: <%d> %f VS %f\n", cycles,overfitting_limit,train_error, test_error);
             }
 
             /* Also stop if the loss is zero in both datasets. */
-            if (train_error < 0.000000000000001 && test_error < 0.000000000000001) break;
+            if (train_error < 0.000000000000001 &&
+                test_error  < 0.000000000000001) break;
         }
 
         cycles++;
@@ -344,6 +353,7 @@ void *NRTrainingThreadMain(void *arg) {
     }
     nr->dataset_error = train_error;
     nr->test_error = test_error;
+    nr->training_total_ms += NRMilliseconds()-start;
 
     /* Signal that the training process has finished, it's up to the main
      * thread to cleanup this training slot, copying the weights to the
@@ -387,6 +397,7 @@ int NRStartTraining(RedisModuleCtx *ctx, RedisModuleString *key, int dbid, NRTyp
     }
     NRPendingTrainingCount++;
     nr->flags |= NR_FLAG_TRAINING;
+    nr->flags &= ~NR_FLAG_TO_TRANSFER;
     pthread_mutex_unlock(&NRPendingTrainingMutex);
     return REDISMODULE_OK;
 }
@@ -721,8 +732,12 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithSimpleString(ctx,"training-total-steps");
     RedisModule_ReplyWithLongLong(ctx,nr->training_total_steps);
 
-    RedisModule_ReplyWithSimpleString(ctx,"training-total-ms");
-    RedisModule_ReplyWithLongLong(ctx,nr->training_total_ms);
+    RedisModule_ReplyWithSimpleString(ctx,"training-total-seconds");
+    {
+        char buf[128];
+        snprintf(buf,sizeof(buf),"%.02f",(double)nr->training_total_ms/1000);
+        RedisModule_ReplyWithSimpleString(ctx,buf);
+    }
 
     RedisModule_ReplyWithSimpleString(ctx,"dataset-error");
     RedisModule_ReplyWithDouble(ctx,nr->dataset_error);
