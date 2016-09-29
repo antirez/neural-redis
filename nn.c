@@ -384,13 +384,13 @@ void AnnPrint(struct Ann *net) {
 /* Calcuate the global error of the net. This is just the
  * Root Mean Square (RMS) error, which is half the sum of the squared
  * errors. */
-double AnnGlobalError(struct Ann *net, double *desidered) {
+double AnnGlobalError(struct Ann *net, double *desired) {
     double e, t;
     int i, outputs = OUTPUT_UNITS(net);
 
     e = 0;
     for (i = 0; i < outputs; i++) {
-        t = desidered[i] - OUTPUT_NODE(net,i);
+        t = desired[i] - OUTPUT_NODE(net,i);
         e += t*t; /* No need for fabs(t), t*t will always be positive. */
     }
     return .5*e;
@@ -405,10 +405,10 @@ void AnnSetInput(struct Ann *net, double *input)
 }
 
 /* Simulate the net, and return the global error */
-double AnnSimulateError(struct Ann *net, double *input, double *desidered) {
+double AnnSimulateError(struct Ann *net, double *input, double *desired) {
     AnnSetInput(net, input);
     AnnSimulate(net);
-    return AnnGlobalError(net, desidered);
+    return AnnGlobalError(net, desired);
 }
 
 /* Calculate gradients with a trivial and slow algorithm, this
@@ -419,7 +419,7 @@ double AnnSimulateError(struct Ann *net, double *input, double *desidered) {
  * points (E1, with the real weight, and E2 with the weight W = W + 0.1),
  * than the approximation of the gradient is G = (E2-E1)/0.1. */
 #define GTRIVIAL_DELTA 0.001
-void AnnCalculateGradientsTrivial(struct Ann *net, double *desidered) {
+void AnnCalculateGradientsTrivial(struct Ann *net, double *desired) {
     int j, i, layers = LAYERS(net);
 
     for (j = 1; j < layers; j++) {
@@ -431,12 +431,12 @@ void AnnCalculateGradientsTrivial(struct Ann *net, double *desidered) {
             /* Calculate the value of the error function
              * in this point. */
             AnnSimulate(net);
-            e1 = AnnGlobalError(net, desidered);
+            e1 = AnnGlobalError(net, desired);
             t = net->layer[j].weight[i];
             /* Calculate the error a bit on the right */
             net->layer[j].weight[i] += GTRIVIAL_DELTA;
             AnnSimulate(net);
-            e2 = AnnGlobalError(net, desidered);
+            e2 = AnnGlobalError(net, desired);
             /* Restore the original weight */
             net->layer[j].weight[i] = t;
             /* Calculate the gradient */
@@ -446,13 +446,13 @@ void AnnCalculateGradientsTrivial(struct Ann *net, double *desidered) {
 }
 
 /* Calculate gradients using the back propagation algorithm */
-void AnnCalculateGradients(struct Ann *net, double *desidered) {
+void AnnCalculateGradients(struct Ann *net, double *desired) {
     int j, layers = LAYERS(net)-1;
 
     /* First we need to calculate the error for every output
      * node. */
     for (j = 0; j < OUTPUT_UNITS(net); j++)
-        net->layer[0].error[j] = net->layer[0].output[j] - desidered[j];
+        net->layer[0].error[j] = net->layer[0].output[j] - desired[j];
 
     /* Back-propagate the error and compute the gradient
      * for every weight in the net. */
@@ -602,17 +602,17 @@ void AnnAdjustWeightsResilientBP(struct Ann *net) {
 }
 
 /* Resilient Backpropagation Epoch */
-double AnnResilientBPEpoch(struct Ann *net, double *input, double *desidered, int setlen) {
+double AnnResilientBPEpoch(struct Ann *net, double *input, double *desired, int setlen) {
     double error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
     AnnResetSgradient(net);
     for (j = 0; j < setlen; j++) {
-        error += AnnSimulateError(net, input, desidered);
-        AnnCalculateGradients(net, desidered);
+        error += AnnSimulateError(net, input, desired);
+        AnnCalculateGradients(net, desired);
         AnnUpdateSgradient(net);
         input += inputs;
-        desidered += outputs;
+        desired += outputs;
     }
     AnnAdjustWeightsResilientBP(net);
     return error / setlen;
@@ -620,14 +620,14 @@ double AnnResilientBPEpoch(struct Ann *net, double *input, double *desidered, in
 
 /* Simulate the entire test dataset with the neural network and returns the
  * average error of all the entries tested. */
-double AnnTestError(struct Ann *net, double *input, double *desidered, int setlen) {
+double AnnTestError(struct Ann *net, double *input, double *desired, int setlen) {
     double error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
     for (j = 0; j < setlen; j++) {
-        error += AnnSimulateError(net, input, desidered);
+        error += AnnSimulateError(net, input, desired);
         input += inputs;
-        desidered += outputs;
+        desired += outputs;
     }
     return error/setlen;
 }
@@ -635,7 +635,7 @@ double AnnTestError(struct Ann *net, double *input, double *desidered, int setle
 /* Simulate the entire test dataset with the neural network and returns the
  * percentage (from 0 to 100) of errors considering the task a classification
  * error where the output set to 1 is the correct class. */
-double AnnTestClassError(struct Ann *net, double *input, double *desidered, int setlen) {
+double AnnTestClassError(struct Ann *net, double *input, double *desired, int setlen) {
     int wrongclass = 0;
     int j, i, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
@@ -649,7 +649,7 @@ double AnnTestClassError(struct Ann *net, double *input, double *desidered, int 
         /* Get the class ID from the test dataset output. */
         classid = 0;
         for (i = 0; i < outputs; i++)
-            if (desidered[i] == 1) break;
+            if (desired[i] == 1) break;
         classid = i;
 
         /* Get the network classification. */
@@ -666,17 +666,17 @@ double AnnTestClassError(struct Ann *net, double *input, double *desidered, int 
         if (outid != classid) wrongclass++;
 
         input += inputs;
-        desidered += outputs;
+        desired += outputs;
     }
     return (double)wrongclass*100/setlen;
 }
 
 /* Train the net */
-double AnnTrain(struct Ann *net, double *input, double *desidered, double maxerr, int maxepochs, int setlen) {
+double AnnTrain(struct Ann *net, double *input, double *desired, double maxerr, int maxepochs, int setlen) {
     int i = 0;
     double e = maxerr+1;
 
     while (i++ < maxepochs && e >= maxerr)
-        e = AnnResilientBPEpoch(net, input, desidered, setlen);
+        e = AnnResilientBPEpoch(net, input, desired, setlen);
     return e;
 }
