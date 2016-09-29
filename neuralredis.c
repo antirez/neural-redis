@@ -620,8 +620,8 @@ int NRCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_OK;
 }
 
-/* NR.RUN key [input1 input2 input3 ... inputN] */
-int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/* Implements NR.RUN and NR.CLASS. */
+int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int output_class) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
     NRCollectThreads(ctx);
 
@@ -632,6 +632,12 @@ int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
+    if (!(nr->flags & NR_FLAG_CLASSIFIER))
+        return RedisModule_ReplyWithError(ctx,
+            "ERR you can't call NR.CLASS with a regressor network. "
+            "Use this command with a classifier network");
+
+
     int ilen = INPUT_UNITS(nr->nn);
     if (argc != ilen+2)
         return RedisModule_ReplyWithError(ctx,
@@ -650,18 +656,43 @@ int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     AnnSimulate(nr->nn);
 
+    /* Output the raw net output or the class ID if the network
+     * is a classifier and the command invoked was NR.CLASS. */
     int olen = OUTPUT_UNITS(nr->nn);
-    RedisModule_ReplyWithArray(ctx,olen);
-    for(int j = 0; j < olen; j++) {
-        double output = OUTPUT_NODE(nr->nn,j);
-        if (!(nr->flags & NR_FLAG_CLASSIFIER) &&
-             (nr->flags & NR_FLAG_NORMALIZE))
-        {
-            output *= nr->onorm[j];
+    if (output_class) {
+        double max = OUTPUT_NODE(nr->nn,0);
+        int max_class = 0;
+        for(int j = 1; j < olen; j++) {
+            double output = OUTPUT_NODE(nr->nn,j);
+            if (output > max) {
+                max = output;
+                max_class = j;
+            }
         }
-        RedisModule_ReplyWithDouble(ctx, output);
+        RedisModule_ReplyWithLongLong(ctx, max_class);
+    } else {
+        RedisModule_ReplyWithArray(ctx,olen);
+        for(int j = 0; j < olen; j++) {
+            double output = OUTPUT_NODE(nr->nn,j);
+            if (!(nr->flags & NR_FLAG_CLASSIFIER) &&
+                 (nr->flags & NR_FLAG_NORMALIZE))
+            {
+                output *= nr->onorm[j];
+            }
+            RedisModule_ReplyWithDouble(ctx, output);
+        }
     }
     return REDISMODULE_OK;
+}
+
+/* NR.RUN key [input1 input2 input3 ... inputN] */
+int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return NRGenericRun_RedisCommand(ctx,argv,argc,0);
+}
+
+/* NR.CLASS key [input1 input2 input3 ... inputN] */
+int NRClass_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    return NRGenericRun_RedisCommand(ctx,argv,argc,1);
 }
 
 /* NR.OBSERVE key input1 [input2 input3 ... inputN] -> output */
@@ -679,8 +710,9 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
     int ilen = INPUT_UNITS(nr->nn);
     int olen = OUTPUT_UNITS(nr->nn);
+    int oargs = (nr->flags & NR_FLAG_CLASSIFIER) ? 1 : olen;
 
-    if (argc != olen+ilen+3)
+    if (argc != oargs+ilen+3)
         return RedisModule_ReplyWithError(ctx,
             "ERR number of arguments does not "
             "match the number of inputs and outputs in the neural network");
@@ -708,7 +740,20 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         if (j < ilen+2) {
             inputs[j-2] = val;
         } else {
-            outputs[j-ilen-3] = val;
+            if (nr->flags & NR_FLAG_CLASSIFIER) {
+                int classid = val;
+                if (classid != val || val >= olen || val < 0) {
+                    RedisModule_Free(inputs);
+                    RedisModule_Free(outputs);
+                    return RedisModule_ReplyWithError(ctx,
+                        "ERR classifier network output must be an integer "
+                        "in the range from 0 to outputs-1.");
+                }
+                memset(outputs,0,sizeof(double)*olen);
+                outputs[classid] = 1;
+            } else {
+                outputs[j-ilen-3] = val;
+            }
         }
     }
 
@@ -933,6 +978,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"nr.run",
         NRRun_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"nr.class",
+        NRClass_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"nr.observe",
