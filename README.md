@@ -20,7 +20,7 @@ computer vision need slow to train and complex neural networks setups, many
 regression and classification problems that are able to enhance the user
 experience in many applications, are approachable by feed forward fully
 connected small networks, that are very fast to rain, very generic, and
-robust to far from perfect parameters configurations.
+robust against non optimal parameters configurations.
 
 Neural Redis implements:
 
@@ -73,8 +73,8 @@ RDB persistence is implemented in the module, while AOF rewrite
 is not implemented at all. Use at your own risk.
 
 If you are not still scared enough, please consider that I wrote the
-more than 1000 lines of C code composing this extension in roughly
-two days.
+more than 1000 lines of C code composing this extension, and this
+README file, in roughly two days.
 
 Note that this implementation may be hugely improved. For instance
 currently only the sigmoid activaction function and the root mean
@@ -116,7 +116,7 @@ memory for the dataset of 50 and 10 items respectively for the training
 dataset, and the testing dataset.
 
 The learning happens using the training dataset, while the testing dataset
-is used in order to detect is the network is able to generalize, that is,
+is used in order to detect if the network is able to generalize, that is,
 is really able to understand how to approximate a given function.
 At the same time, the testing dataset is useful to avoid to train the network
 too much, a problem known as *overfitting*. Overfitting means that the
@@ -200,14 +200,14 @@ Well, more or less it works. Let's look at some internal info now:
     27) classification-errors-perc
     28) 0.00
 
-AS you can see we have 6 dataset items and 2 test items. We configured
+As you can see we have 6 dataset items and 2 test items. We configured
 the network at creation time to have space for 50 and 10 items. As you add
 items with `NR.OBSERVE` the network will put items evenly on both datasets,
 proportionally to their respective size. Finally when the datasets are full,
 old random entries are replaced with new
 ones.
 
-We can also see that the network was trained with 1344 step for 0 seconds
+We can also see that the network was trained with 1344 steps for 0 seconds
 (just a few milliseconds). Each step is the training performed with a single
 data item, so the same 6 items were presented to the network for 244 cycles
 in total.
@@ -244,7 +244,8 @@ output could be one of the following three jar types:
 As a programmer you may think that, the output class, is just a single output
 number. However neural networks don't work well this way, for example
 classifying type 0 with an output between 0 and 0.33, type 1 with an output
-between 0.33 and 0.66, and finally type 2 with an output between 0.66 and 1.
+between 0.33 and 0.66, and finally type 2 with an output between 0.66 and 1,
+will not work well at all.
 
 The way to go instead is to use three distinct outputs, where we set two
 always to 0, and a single one to 1, corresponding to the type the output
@@ -317,7 +318,7 @@ Titanic incident.
 You can find both the code and a CSV with a reduced dataset of 891
 entries in the `examples` directory of this Github repository.
 
-In this exmaple we are going to try to predict, given a few input
+In this example we are going to try to predict, given a few input
 variables, if a specific person is going to survive or not, so this
 is a classification task, where we label persons with two different
 labels: survived or died.
@@ -328,34 +329,34 @@ application according to their behavior and the other data we collected
 in the past (hint: machine learning is all about collecting data...).
 
 In the CSV there are a number of information about each passenger,
-but here in order to make the example simple we'll use just the
-following:
+but here in order to make the example simpler we'll use just the
+following fields:
 
-* Ticket class
-* Sex
-* Age
-* Sibsp (Number of siblings, spouses aboard)
-* Parch (Number of parents and children aboard)
-* Ticket fare
+* Ticket class (1st, 2nd, 3rd).
+* Sex.
+* Age.
+* Sibsp (Number of siblings, spouses aboard).
+* Parch (Number of parents and children aboard).
+* Ticket fare.
 
 If there is a correlation between this input variables and the
 ability to survive, our neural network should find it.
 
 Note that while we have six inputs, we'll need a total network
 with 9 total inputs, since sex and ticket class, are actually
-*input classes*, so like we needed in the output, we'll need to
+*input classes*, so like we did in the output, we'll need to
 do in the input. Each input will signal if the passenger is in
 one of the possible classes. This are our nine inputs:
 
-* Is male? (0 or 1)
-* Is Female? (0 or 1)
-* Traveled in first class? (0 or 1)
-* Traveled in second class? (0 or 1)
-* Traveled in third class? (0 or 1)
-* Age
-* Number of siblings / spouses
-* Number of parents / children
-* Ticket fare
+* Is male? (0 or 1).
+* Is Female? (0 or 1).
+* Traveled in first class? (0 or 1).
+* Traveled in second class? (0 or 1).
+* Traveled in third class? (0 or 1).
+* Age.
+* Number of siblings / spouses.
+* Number of parents / children.
+* Ticket fare.
 
 We have a bit less than 900 passengers (I'm using a reduced
 dataset here), however we want to take about 200 for verification
@@ -363,7 +364,7 @@ at application side, without sending them to Redis at all.
 
 The neural network will also use part of the dataset for
 verification, since here I'm planning to use the automatic training
-stop feature, so we need a way to detect overfitting.
+stop feature, in order to detect overfitting.
 
 Such a network can be created with:
 
@@ -374,13 +375,13 @@ layer (the layers between inputs and outputs are called hidden, in
 case you are new to neural networks). The hidden layer has 15 units.
 This is still a pretty small network, but we expect that for the
 amount of data and the kind of correlations that there could be in
-this data, that this could be enough. It's possible to test with
+this data, this could be enough. It's possible to test with
 different parameters, and I plan to implement a `NR.CONFIGURE`
 command so that it will be possible to change this things on the fly.
 
-Also note that since the testing dataset maximum size is half the one of the
-training dataset, `NR.OBSERVE` will automatically put one third of the
-entires in the testing dataset.
+Also note that since we defined a testing dataset maximum size to be half
+the one of the training dataset (1000 vs 500), `NR.OBSERVE` will automatically
+put one third of the entires in the testing dataset.
 
 If you check the Ruby program that implements this example inside the
 source distribution, you'll see how data is fed directly as it is
@@ -416,8 +417,8 @@ end
 
 The function is able to both send data or evaluate the error rate.
 
-After we load the dataset, before any training, the output of
-`NR.INFO` will look like this:
+After we load 601 entries from the dataset, before any training, the output
+of `NR.INFO` will look like this:
 
     > NR.INFO mynet
      1) id
@@ -455,8 +456,8 @@ After we load the dataset, before any training, the output of
 
 As expected, we have 401 training items and 200 testing dataset.
 Note that for networks declared as classifiers, we have an additional
-field in the info output, which is `classification-errors-perc`. After
-the training this field will be populated with the percentage (from
+field in the info output, which is `classification-errors-perc`. Once
+we train the network this field will be populated with the percentage (from
 0% to 100%) of items in the testing dataset which were misclassified by
 the neural network. It's time to train our network:
 
@@ -491,9 +492,10 @@ We can now show the output of the Ruby program after its full execution:
 
     47 prediction errors on 290 items
 
-Does not look too bad, considering how simple is our model. Modeling just
-on the percentage of people that survived VS the ones that died, we could
-miss-predict more than 100 passengers.
+Does not look too bad, considering how simple is our model and the fact
+we trained with just 401 data points. Modeling just on the percentage of
+people that survived VS the ones that died, we could miss-predict more
+than 100 passengers.
 
 We can also play with a few variables interactively in order to check
 what are the inputs that make a difference according to our trained
@@ -525,7 +527,7 @@ This time is 50% and 50%... Trow your coin.
 The gist of this example is that, many problems you face as a developer
 in order to optimize your application and do better choices in the
 interaction with your users, are Titanic problems, but not in their
-size, just in the fact that a simple model can solve them.
+size, just in the fact that a simple model can "solve" them.
 
 Overfitting detection and training tricks
 ===
@@ -535,22 +537,22 @@ way like the one they are proposed in this Redis module, is for sure
 overfitting. If you train too much, the neural network ends to be
 like that one student that can exactly tell you all the words in the
 lesson, but if you ask a more generic question about the argument she
-or he just wonder... and can't reply.
+or he just wonders and can't reply.
 
 So the `NR.TRAIN` command `AUTOSTOP` option attempts to detect
 overfitting to stop the training before it's too late. How is this
 performed? Well the current solution is pretty trivial: as the training
-happens, we check the current error that our network is doing against
+happens, we check the current error of the neural network between
 the training dataset and the testing dataset.
 
-When overfitting starts usually what we see is that the network error
+When overfitting kicks in, usually what we see is that the network error
 rate starts to be lower and lower in the training dataset, but instead
 of also reducing in the testing dataset it inverts the tendency and
 starts to grow. To detect this turning point is not simple for two
 reasons:
 
-1. Because sometimes the error fluctuates as the network learns.
-2. Sometimes the network error may just go higher in the training dataset since there is a *local minima*, but then a better solution is found.
+1. The error may fluctuates as the network learns.
+2. The network error may just go higher in the testing dataset since the learning is trapped into a *local minima*, but then a better solution may be found.
 
 So while `AUTOSTOP` kinda does what it advertises (but I'll work on
 improving it in the future, and there are neural network experts that
@@ -572,9 +574,9 @@ the automatic stop:
 
 We can use the `MAXTIME` and `MAXCYCLES` options in order to train for
 a specific amount of time (note that these options are also applicable
-when `AUTOTRAIN` is specified). Normally `MAXTIME` is set to 10000, which
+when `AUTOSTOP` is specified). Normally `MAXTIME` is set to 10000, which
 are milliseconds, so to 10 seconds of total training before killing the
-training thread. Let's train our network for 30 seconds:
+training thread. Let's train our network for 30 seconds, without auto stop.
 
     > NR.TRAIN mynet MAXTIME 30000
     Training has started
@@ -631,4 +633,5 @@ types using open datasets, and to score different implementations against
 it.
 
 Have fun with machine learning,
+
 Salvatore
