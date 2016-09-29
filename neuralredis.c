@@ -827,6 +827,14 @@ int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
         }
     }
 
+    /* Overfitting detection compares error rate in testing/training data,
+     * so does not work without entries in the testing dataset. */
+    if (nr->flags & NR_FLAG_AUTO_STOP && nr->test.len == 0) {
+        return RedisModule_ReplyWithError(ctx,
+            "ERR Can't start training with AUTOSTOP option: "
+            "overfitting detection requires a non zero length testing dataset");
+    }
+
     if (NRStartTraining(ctx,argv[1],RedisModule_GetSelectedDb(ctx),nr) ==
         REDISMODULE_ERR)
     {
