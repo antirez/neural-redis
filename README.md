@@ -1,16 +1,21 @@
+Neural Redis
+===
+
+*Machine learning is like highschool sex. Everyone says they do it, nobody really does, and no one knows what it actually is.* -- [@Mikettownsend](https://twitter.com/Mikettownsend/status/780453119238955008).
+
 Neural Redis is a Redis loadable module that implements feed forward neural
 networks as a native data type for Redis. The project goal is to provide
 Redis users with an extremely simple to use machine learning experience.
 
-Normally machine learning is operated by collecting data, traning some
+Normally machine learning is operated by collecting data, training some
 system, and finally executing the resulting program in order to solve actual
 problems. In Neural Redis all this phases are compressed into a single API:
-the data collectin and training all happen inside the Redis server.
+the data collection and training all happen inside the Redis server.
 Neural networks can be executed while there is an ongoing training, and can
 be re-trained multiple times as new data from the outside is collected
 (for instance user events).
 
-The project starts from the observation that, while complex problemss like
+The project starts from the observation that, while complex problems like
 computer vision need slow to train and complex neural networks setups, many
 regression and classification problems that are able to enhance the user
 experience in many applications, are approachable by feed forward fully
@@ -22,6 +27,7 @@ Neural Redis implements:
 * A very simple to use API.
 * Automatic data normalization.
 * Online training of neural networks in different threads.
+* Ability to use the neural network while the system is training it (we train a copy and only later merge the weights).
 * Fully connected neural networks using the RPROP (Resilient back propagation) learning algorithm.
 * Automatic training with simple overtraining detection.
 
@@ -225,7 +231,7 @@ Classification tasks
 
 Regression approximates a function having certain inputs and outputs in the
 training data set. Classification instead is the task of, given a set of
-inputs rappresenting *something*, to label it with one of a fixed set of
+inputs representing *something*, to label it with one of a fixed set of
 labels.
 
 For example the inputs may be features of Greek jars, and the classification
@@ -518,12 +524,111 @@ This time is 50% and 50%... Trow your coin.
 
 The gist of this example is that, many problems you face as a developer
 in order to optimize your application and do better choices in the
-interaction with your users, are Titanic problems, but not on their
-size, in the simplicity that a simple model can solve them.
+interaction with your users, are Titanic problems, but not in their
+size, just in the fact that a simple model can solve them.
 
 Overfitting detection and training tricks
 ===
 
-Listing training threads
+One thing that makes neural networks hard to use in an interactive
+way like the one they are proposed in this Redis module, is for sure
+overfitting. If you train too much, the neural network ends to be
+like that one student that can exactly tell you all the words in the
+lesson, but if you ask a more generic question about the argument she
+or he just wonder... and can't reply.
+
+So the `NR.TRAIN` command `AUTOSTOP` option attempts to detect
+overfitting to stop the training before it's too late. How is this
+performed? Well the current solution is pretty trivial: as the training
+happens, we check the current error that our network is doing against
+the training dataset and the testing dataset.
+
+When overfitting starts usually what we see is that the network error
+rate starts to be lower and lower in the training dataset, but instead
+of also reducing in the testing dataset it inverts the tendency and
+starts to grow. To detect this turning point is not simple for two
+reasons:
+
+1. Because sometimes the error fluctuates as the network learns.
+2. Sometimes the network error may just go higher in the training dataset since there is a *local minima*, but then a better solution is found.
+
+So while `AUTOSTOP` kinda does what it advertises (but I'll work on
+improving it in the future, and there are neural network experts that
+know much better than me and can submit a kind Pull Request :-), there
+are also means to manually train the network, and see how the error
+changes with training.
+
+For instance, this is the error rate in the Titanic dataset after
+the automatic stop:
+
+    21) training-total-seconds
+    22) 0.17
+    23) dataset-error
+    24) "0.13170509045457734"
+    25) test-error
+    26) "0.13433443241900492"
+    27) classification-errors-perc
+    28) 18.50
+
+We can use the `MAXTIME` and `MAXCYCLES` options in order to train for
+a specific amount of time (note that these options are also applicable
+when `AUTOTRAIN` is specified). Normally `MAXTIME` is set to 10000, which
+are milliseconds, so to 10 seconds of total training before killing the
+training thread. Let's train our network for 30 seconds:
+
+    > NR.TRAIN mynet MAXTIME 30000
+    Training has started
+
+As a side note, while one or more trainings are in progress, we can
+list them:
+
+    > NR.THREADS
+    1) nn_id=9 key=mynet db=0 maxtime=30000 maxcycles=0
+
+After the training stops, let's show info again:
+
+    21) training-total-seconds
+    22) 30.17
+    23) dataset-error
+    24) "0.0674554189303056"
+    25) test-error
+    26) "0.20468644603795394"
+    27) classification-errors-perc
+    28) 21.50
+
+You can see that our network overtrained: the error rate of the training
+dataset is now lower: 0.06. But actually the performances in data it
+never saw before, that is the testing dataset, is greater at 0.20!
+
+And indeed, it classifies in a wrong way 21% of entries instead of 18.50%.
+
+However it's not always like that, so to test things manually is a good
+idea when working at machine learning experiments, especially with this
+module that is experimental.
+
+Contributing
 ===
 
+The main aim of Neural Redis, which is currently just a 48h personal
+hackatlon, is to show the potential that there is in an accessible API
+that provides a simple to use machine learning tool, that can be used
+and trained interactively.
+
+However the neural network implementation can be surely improved in different
+ways, so if you are an expert in this field, feel free to submit changes
+or ideas. One thing that I want to retain is the simplicity of the outer
+layer: the API. However the techniques used in the internals can be more
+complex in order to improve the results.
+
+There is to note that, given the API exported, the implementation of
+the neural network should be, more than state of art in solving a specific
+problem, more designed in order to work well enough in a large set of
+conditions. While the current fully connected network has its limits,
+it together with BPROP learning shows to be quite resistant to misuses.
+So an improved version should be able to retain, and extend this quality.
+The simplest way to guarantee this is to have a set of benchmarks of different
+types using open datasets, and to score different implementations against
+it.
+
+Have fun with machine learning,
+Salvatore
