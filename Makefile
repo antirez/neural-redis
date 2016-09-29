@@ -12,7 +12,7 @@ endif
 
 .SUFFIXES: .c .so .xo .o
 
-all: neuralredis.so testmodule.so
+all: neuralredis.so
 
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
