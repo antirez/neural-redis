@@ -66,6 +66,17 @@ easily crash the Redis server. Also note that currently only
 RDB persistence is implemented in the module, while AOF rewrite
 is not implemented at all. Use at your own risk.
 
+If you are not still scared enough, please consider that I wrote the
+more than 1000 lines of C code composing this extension in roughly
+two days.
+
+Note that this implementation may be hugely improved. For instance
+currently only the sigmoid activaction function and the root mean
+square loss functions are supported: while for the problems this
+module is willing to address this limited neural network implementation
+is showing to be quite flexible, it is possible to do much better
+depending on the problem at hand.
+
 Hello World
 ===
 
