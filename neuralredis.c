@@ -812,13 +812,20 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
 
-    RedisModule_ReplyWithArray(ctx,2*12);
+    RedisModule_ReplyWithArray(ctx,2*14);
 
     RedisModule_ReplyWithSimpleString(ctx,"id");
     RedisModule_ReplyWithLongLong(ctx,nr->id);
 
+    RedisModule_ReplyWithSimpleString(ctx,"type");
+    RedisModule_ReplyWithSimpleString(ctx,
+        (nr->flags & NR_FLAG_CLASSIFIER) ? "classifier" : "regressor");
+
+    RedisModule_ReplyWithSimpleString(ctx,"auto-normalization");
+    RedisModule_ReplyWithLongLong(ctx,!!(nr->flags & NR_FLAG_NORMALIZE));
+
     RedisModule_ReplyWithSimpleString(ctx,"training");
-    RedisModule_ReplyWithLongLong(ctx,nr->flags & NR_FLAG_TRAINING);
+    RedisModule_ReplyWithLongLong(ctx,!!(nr->flags & NR_FLAG_TRAINING));
 
     RedisModule_ReplyWithSimpleString(ctx,"layout");
     RedisModule_ReplyWithArray(ctx,LAYERS(nr->nn));
