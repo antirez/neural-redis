@@ -917,6 +917,28 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return REDISMODULE_OK;
 }
 
+/* NR.THREADS */
+int NRThreads_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
+
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+
+    pthread_mutex_lock(&NRPendingTrainingMutex);
+    RedisModule_ReplyWithArray(ctx,NRPendingTrainingCount);
+    for (int j = 0; j < NRPendingTrainingCount; j++) {
+        char buf[1024];
+        NRPendingTraining *pt = &NRTrainings[j];
+        const char *keyname = RedisModule_StringPtrLen(pt->key,NULL);
+        snprintf(buf,sizeof(buf),"nn_id=%llu key=%s db=%d maxtime=%llu maxcycles=%llu",
+            pt->nr->id, keyname, pt->db_id, pt->nr->training_max_ms,
+            pt->nr->training_max_cycles);
+        RedisModule_ReplyWithSimpleString(ctx,buf);
+    }
+    pthread_mutex_unlock(&NRPendingTrainingMutex);
+    return REDISMODULE_OK;
+}
+
 /* =============================== Type methods ============================= */
 
 void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
@@ -997,6 +1019,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"nr.train",
         NRTrain_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"nr.threads",
+        NRThreads_RedisCommand,"",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
