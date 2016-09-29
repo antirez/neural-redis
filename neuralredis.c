@@ -41,6 +41,7 @@
 #include <stdint.h>
 #include <pthread.h>
 #include <sys/time.h>
+#include <math.h>
 
 #include "nn.h"
 
@@ -60,7 +61,8 @@ uint64_t NRNextId = 1; /* Next neural network unique ID. */
 /* Flags to persist when saving the NN. */
 #define NR_FLAG_TO_PRESIST (NR_FLAG_REGRESSOR| \
                             NR_FLAG_CLASSIFIER| \
-                            NR_FLAG_NORMALIZE)
+                            NR_FLAG_NORMALIZE| \
+                            NR_FLAG_OF_DETECTED)
 
 /* Flags to transfer after training. */
 #define NR_FLAG_TO_TRANSFER (NR_FLAG_OF_DETECTED)
@@ -88,6 +90,9 @@ typedef struct {
     NRDataset test;     /* Testing dataset. */
     double dataset_error;   /* Average error in the training dataset. */
     double test_error;      /* Average error in the test dataset. */
+    /* For normalized (NR_FLAG_NORMALIZE) networks. */
+    double *inorm;          /* Inputs normalization factors. */
+    double *onorm;          /* Outputs normalization factors. */
 } NRTypeObject;
 
 struct {
@@ -134,6 +139,12 @@ NRTypeObject *createNRTypeObject(int flags, int *layers, int numlayers, int dset
     o->nn = AnnCreateNet(numlayers,layers);
     o->dataset.maxlen = dset_len;
     o->test.maxlen = test_len;
+    int ilen = INPUT_UNITS(o->nn);
+    int olen = OUTPUT_UNITS(o->nn);
+    o->inorm = RedisModule_Calloc(1,sizeof(double)*ilen);
+    o->onorm = RedisModule_Calloc(1,sizeof(double)*olen);
+    for (int j = 0; j < ilen; j++) o->inorm[j] = 1;
+    for (int j = 0; j < olen; j++) o->onorm[j] = 1;
     return o;
 }
 
@@ -235,6 +246,11 @@ NRTypeObject *NRClone(NRTypeObject *o, int newid) {
     memcpy(copy->dataset.outputs,o->dataset.outputs,sizeof(double)*olen*o->dataset.len);
     memcpy(copy->test.inputs,o->test.inputs,sizeof(double)*ilen*o->test.len);
     memcpy(copy->test.outputs,o->test.outputs,sizeof(double)*olen*o->test.len);
+
+    copy->inorm = RedisModule_Alloc(sizeof(double)*ilen);
+    copy->onorm = RedisModule_Alloc(sizeof(double)*olen);
+    memcpy(copy->inorm,o->inorm,sizeof(double)*ilen);
+    memcpy(copy->onorm,o->onorm,sizeof(double)*olen);
     return copy;
 }
 
@@ -261,6 +277,11 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     dst->dataset_error = src->dataset_error;
     dst->test_error = src->test_error;
     dst->flags |= src->flags & NR_FLAG_TO_TRANSFER;
+
+    int ilen = INPUT_UNITS(src->nn);
+    int olen = OUTPUT_UNITS(src->nn);
+    memcpy(dst->inorm,src->inorm,sizeof(double)*ilen);
+    memcpy(dst->onorm,src->onorm,sizeof(double)*olen);
 }
 
 /* Threaded training entry point. */
@@ -282,6 +303,67 @@ void *NRTrainingThreadMain(void *arg) {
     double best_test_error = 1.0/0;
 
     nr->flags &= ~NR_FLAG_TO_TRANSFER;
+
+    /* If the network is auto normalized, we need to trasnform the inputs
+     * in a way that's acceptable for the NN. We just find the maximum
+     * absolute value, and divide for it, to get a -1,1 range. There
+     * are more advanced transformations that are usually performed that
+     * could be implemented in the future.
+     *
+     * Note that we compute the normalization vectors for all the inputs
+     * and outputs, however if the network is a classifier, flagged with
+     * (NR_FLAG_CLASSIFIER), no output normalization will be done since
+     * the data is already in 0/1 format. */
+    if ((nr->flags & NR_FLAG_NORMALIZE) && nr->dataset.len) {
+        int ilen = INPUT_UNITS(nr->nn);
+        int olen = OUTPUT_UNITS(nr->nn);
+        double *imax = nr->inorm;
+        double *omax = nr->onorm;
+        double *inputs = nr->dataset.inputs;
+        double *outputs = nr->dataset.outputs;
+        for (int i = 0; i < ilen; i++) imax[i] = 1;
+        for (int i = 0; i < olen; i++) omax[i] = 1;
+
+        /* Compute the max values vectors. */
+        for (int j = 0; j < nr->dataset.len; j++) {
+            for (int i = 0; i < ilen; i++)
+                if (fabs(inputs[i]) > imax[i]) imax[i] = fabs(inputs[i]);
+            for (int i = 0; i < olen; i++)
+                if (fabs(outputs[i]) > omax[i]) omax[i] = fabs(outputs[i]);
+            inputs += ilen;
+            outputs += olen;
+        }
+
+        /* Likely we are not seeing what will really be the true input/output
+         * maximum value, so we multiply the maximum values found by a constant.
+         * However if the max is exactly "1" we assume it's a classification
+         * input and don't alter it. */
+        for (int i = 0; i < ilen; i++) if (imax[i] != 1) imax[i] *= 1.2;
+        for (int i = 0; i < olen; i++) if (omax[i] != 1) omax[i] *= 1.2;
+
+        /* We can normalize the dataset directly: after the training it will
+         * be discarded anyway. */
+        inputs = nr->dataset.inputs;
+        outputs = nr->dataset.outputs;
+        for (int j = 0; j < nr->dataset.len; j++) {
+            for (int i = 0; i < ilen; i++) inputs[i] /= nr->inorm[i];
+            if (!(nr->flags & NR_FLAG_CLASSIFIER))
+                for (int i = 0; i < olen; i++) outputs[i] /= nr->onorm[i];
+            inputs += ilen;
+            outputs += olen;
+        }
+
+        inputs = nr->test.inputs;
+        outputs = nr->test.outputs;
+        for (int j = 0; j < nr->test.len; j++) {
+            for (int i = 0; i < ilen; i++) inputs[i] /= nr->inorm[i];
+            if (!(nr->flags & NR_FLAG_CLASSIFIER))
+                for (int i = 0; i < olen; i++) outputs[i] /= nr->onorm[i];
+            inputs += ilen;
+            outputs += olen;
+        }
+    }
+
     while(1) {
         long long cycle_start = NRMilliseconds();
         train_error = AnnTrain(nr->nn,
@@ -562,6 +644,7 @@ int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
             return RedisModule_ReplyWithError(ctx,
                 "ERR invalid neural network input: must be a valid double "
                 "precision floating point number");
+        if (nr->flags & NR_FLAG_NORMALIZE) input /= nr->inorm[j];
         INPUT_NODE(nr->nn,j) = input;
     }
 
@@ -569,8 +652,15 @@ int NRRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     int olen = OUTPUT_UNITS(nr->nn);
     RedisModule_ReplyWithArray(ctx,olen);
-    for(int j = 0; j < olen; j++)
-        RedisModule_ReplyWithDouble(ctx, OUTPUT_NODE(nr->nn,j));
+    for(int j = 0; j < olen; j++) {
+        double output = OUTPUT_NODE(nr->nn,j);
+        if (!(nr->flags & NR_FLAG_CLASSIFIER) &&
+             (nr->flags & NR_FLAG_NORMALIZE))
+        {
+            output *= nr->onorm[j];
+        }
+        RedisModule_ReplyWithDouble(ctx, output);
+    }
     return REDISMODULE_OK;
 }
 
@@ -619,6 +709,26 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             inputs[j-2] = val;
         } else {
             outputs[j-ilen-3] = val;
+        }
+    }
+
+    /* Classification networks must have all output set to 0 but one
+     * set to 1, otherwise there is an error in the data. */
+    if (nr->flags & NR_FLAG_CLASSIFIER) {
+        int ones = 0, j;
+        for (j = 0; j < olen; j++) {
+            if (outputs[j] == 1) {
+                ones++;
+            } else if (outputs[j] != 0) {
+                break;
+            }
+        }
+        if (ones != 1 || j != olen) {
+            RedisModule_Free(inputs);
+            RedisModule_Free(outputs);
+            return RedisModule_ReplyWithError(ctx,
+                "ERR classification neural networks outputs must be all zero "
+                "but exactly one set to one");
         }
     }
 
