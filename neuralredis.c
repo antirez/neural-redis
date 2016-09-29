@@ -90,6 +90,9 @@ typedef struct {
     NRDataset test;     /* Testing dataset. */
     double dataset_error;   /* Average error in the training dataset. */
     double test_error;      /* Average error in the test dataset. */
+    double test_class_error;    /* Percentage of wrong classifications in test
+                                   dataset. Only applicable to nets flagged with
+                                   NR_FLAG_CLASSIFIER. */
     /* For normalized (NR_FLAG_NORMALIZE) networks. */
     double *inorm;          /* Inputs normalization factors. */
     double *onorm;          /* Outputs normalization factors. */
@@ -276,6 +279,7 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     dst->training_total_ms = src->training_total_ms;
     dst->dataset_error = src->dataset_error;
     dst->test_error = src->test_error;
+    dst->test_class_error = src->test_class_error;
     dst->flags |= src->flags & NR_FLAG_TO_TRANSFER;
 
     int ilen = INPUT_UNITS(src->nn);
@@ -434,6 +438,16 @@ void *NRTrainingThreadMain(void *arg) {
                                   nr->test.outputs,
                                   nr->test.len);
     }
+
+    /* If this is a classification net, compute the percentage of
+     * wrong classifications. */
+    if (nr->flags & NR_FLAG_CLASSIFIER) {
+        nr->test_class_error = AnnTestClassError(nr->nn,
+                                  nr->test.inputs,
+                                  nr->test.outputs,
+                                  nr->test.len);
+    }
+
     nr->dataset_error = train_error;
     nr->test_error = test_error;
     nr->training_total_ms += NRMilliseconds()-start;
@@ -826,6 +840,8 @@ int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 /* NR.INFO key */
 int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    char buf[128];
+
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
     NRCollectThreads(ctx);
 
@@ -837,7 +853,9 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
 
-    RedisModule_ReplyWithArray(ctx,2*14);
+    int fields = 14;
+    if (nr->flags & NR_FLAG_CLASSIFIER) fields++;
+    RedisModule_ReplyWithArray(ctx,fields*2);
 
     RedisModule_ReplyWithSimpleString(ctx,"id");
     RedisModule_ReplyWithLongLong(ctx,nr->id);
@@ -877,7 +895,6 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_ReplyWithSimpleString(ctx,"training-total-seconds");
     {
-        char buf[128];
         snprintf(buf,sizeof(buf),"%.02f",(double)nr->training_total_ms/1000);
         RedisModule_ReplyWithSimpleString(ctx,buf);
     }
@@ -887,6 +904,12 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_ReplyWithSimpleString(ctx,"test-error");
     RedisModule_ReplyWithDouble(ctx,nr->test_error);
+
+    RedisModule_ReplyWithSimpleString(ctx,"classification-errors-perc");
+    {
+        snprintf(buf,sizeof(buf),"%.02f",(double)nr->test_class_error);
+        RedisModule_ReplyWithSimpleString(ctx,buf);
+    }
 
     RedisModule_ReplyWithSimpleString(ctx,"overfitting-detected");
     RedisModule_ReplyWithSimpleString(ctx, (nr->flags & NR_FLAG_OF_DETECTED) ? "yes" : "no");

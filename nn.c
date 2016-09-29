@@ -632,6 +632,45 @@ double AnnTestError(struct Ann *net, double *input, double *desidered, int setle
     return error/setlen;
 }
 
+/* Simulate the entire test dataset with the neural network and returns the
+ * percentage (from 0 to 100) of errors considering the task a classification
+ * error where the output set to 1 is the correct class. */
+double AnnTestClassError(struct Ann *net, double *input, double *desidered, int setlen) {
+    int wrongclass = 0;
+    int j, i, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
+
+    for (j = 0; j < setlen; j++) {
+        int classid, outid;
+        double max = 0;
+
+        AnnSetInput(net, input);
+        AnnSimulate(net);
+
+        /* Get the class ID from the test dataset output. */
+        classid = 0;
+        for (i = 0; i < outputs; i++)
+            if (desidered[i] == 1) break;
+        classid = i;
+
+        /* Get the network classification. */
+        max = OUTPUT_NODE(net,0);
+        outid = 0;
+        for (i = 1; i < outputs; i++) {
+            double o = OUTPUT_NODE(net,i);
+            if (o > max) {
+                outid = i;
+                max = o;
+            }
+        }
+
+        if (outid != classid) wrongclass++;
+
+        input += inputs;
+        desidered += outputs;
+    }
+    return (double)wrongclass*100/setlen;
+}
+
 /* Train the net */
 double AnnTrain(struct Ann *net, double *input, double *desidered, double maxerr, int maxepochs, int setlen) {
     int i = 0;

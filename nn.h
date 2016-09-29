@@ -97,5 +97,6 @@ void AnnAdjustWeightsResilientBP(struct Ann *net);
 double AnnResilientBPEpoch(struct Ann *net, double *input, double *desidered, int setlen);
 double AnnTrain(struct Ann *net, double *input, double *desidered, double maxerr, int maxepochs, int setlen);
 double AnnTestError(struct Ann *net, double *input, double *desidered, int setlen);
+double AnnTestClassError(struct Ann *net, double *input, double *desidered, int setlen);
 
 #endif /* __NN_H */
