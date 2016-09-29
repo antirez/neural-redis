@@ -646,7 +646,7 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
-    if (!(nr->flags & NR_FLAG_CLASSIFIER))
+    if (output_class && !(nr->flags & NR_FLAG_CLASSIFIER))
         return RedisModule_ReplyWithError(ctx,
             "ERR you can't call NR.CLASS with a regressor network. "
             "Use this command with a classifier network");
