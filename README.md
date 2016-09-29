@@ -267,7 +267,7 @@ replies it will provide are totally random:
     3) "0.49534453421381375"
 
 As you can see, the network *voted* for type 0, since the first output is
-greater than the others. THere is a Neural Redis command that saves you the
+greater than the others. There is a Neural Redis command that saves you the
 work of finding the greatest output client side in order to interpret the
 result as a number between 0 and 2. It is identical to `NR.RUN` but just
 outputs directly the class ID, and is called `NR.CLASS`:
@@ -302,10 +302,228 @@ would be translated to "0 1 0" and so forth.
 A practical example: the Titanic dataset
 ===
 
-Listing training threads
-===
+[Kaggle.com](https://www.kaggle.com/) is hosting a machine learning
+competition. One of the datasets they use, is the list of the Titanic
+passengers, their ticket class, fair, number of relatives, age,
+sex, and other information, and... If they survived or not during the
+Titanic incident.
+
+You can find both the code and a CSV with a reduced dataset of 891
+entries in the `examples` directory of this Github repository.
+
+In this exmaple we are going to try to predict, given a few input
+variables, if a specific person is going to survive or not, so this
+is a classification task, where we label persons with two different
+labels: survived or died.
+
+This problem is pretty similar, even if a bit more scaring, than the
+problem of labeling users or predicting their response in some web
+application according to their behavior and the other data we collected
+in the past (hint: machine learning is all about collecting data...).
+
+In the CSV there are a number of information about each passenger,
+but here in order to make the example simple we'll use just the
+following:
+
+* Ticket class
+* Sex
+* Age
+* Sibsp (Number of siblings, spouses aboard)
+* Parch (Number of parents and children aboard)
+* Ticket fare
+
+If there is a correlation between this input variables and the
+ability to survive, our neural network should find it.
+
+Note that while we have six inputs, we'll need a total network
+with 9 total inputs, since sex and ticket class, are actually
+*input classes*, so like we needed in the output, we'll need to
+do in the input. Each input will signal if the passenger is in
+one of the possible classes. This are our nine inputs:
+
+* Is male? (0 or 1)
+* Is Female? (0 or 1)
+* Traveled in first class? (0 or 1)
+* Traveled in second class? (0 or 1)
+* Traveled in third class? (0 or 1)
+* Age
+* Number of siblings / spouses
+* Number of parents / children
+* Ticket fare
+
+We have a bit less than 900 passengers (I'm using a reduced
+dataset here), however we want to take about 200 for verification
+at application side, without sending them to Redis at all.
+
+The neural network will also use part of the dataset for
+verification, since here I'm planning to use the automatic training
+stop feature, so we need a way to detect overfitting.
+
+Such a network can be created with:
+
+    > NR.CREATE mynet CLASSIFIER 9 15 -> 2 DATASET 1000 TEST 500 NORMALIZE
+
+Also note that we are using a neural network with a single hidden
+layer (the layers between inputs and outputs are called hidden, in
+case you are new to neural networks). The hidden layer has 15 units.
+This is still a pretty small network, but we expect that for the
+amount of data and the kind of correlations that there could be in
+this data, that this could be enough. It's possible to test with
+different parameters, and I plan to implement a `NR.CONFIGURE`
+command so that it will be possible to change this things on the fly.
+
+Also note that since the testing dataset maximum size is half the one of the
+training dataset, `NR.OBSERVE` will automatically put one third of the
+entires in the testing dataset.
+
+If you check the Ruby program that implements this example inside the
+source distribution, you'll see how data is fed directly as it is
+to the network, since we asked for auto normalization:
+
+```
+def feed_data(r,dataset,mode)
+    errors = 0
+    dataset.each{|d|
+        pclass = [0,0,0]
+        pclass[d[:pclass]-1] = 1
+        inputs = pclass +
+                 [d[:male],d[:female]] +
+                 [d[:age],
+                  d[:sibsp],
+                  d[:parch],
+                  d[:fare]]
+        outputs = d[:survived]
+        if mode == :observe
+            r.send('nr.observe',:mynet,*inputs,'->',outputs)
+        elsif mode == :test
+            res = r.send('nr.class',:mynet,*inputs)
+            if res != outputs
+                errors += 1
+            end
+        end
+    }
+    if mode == :test
+        puts "#{errors} prediction errors on #{dataset.length} items"
+    end
+end
+```
+
+The function is able to both send data or evaluate the error rate.
+
+After we load the dataset, before any training, the output of
+`NR.INFO` will look like this:
+
+    > NR.INFO mynet
+     1) id
+     2) (integer) 5
+     3) type
+     4) classifier
+     5) auto-normalization
+     6) (integer) 1
+     7) training
+     8) (integer) 0
+     9) layout
+    10) 1) (integer) 9
+        2) (integer) 15
+        3) (integer) 2
+    11) training-dataset-maxlen
+    12) (integer) 1000
+    13) training-dataset-len
+    14) (integer) 401
+    15) test-dataset-maxlen
+    16) (integer) 500
+    17) test-dataset-len
+    18) (integer) 200
+    19) training-total-steps
+    20) (integer) 0
+    21) training-total-seconds
+    22) 0.00
+    23) dataset-error
+    24) "0"
+    25) test-error
+    26) "0"
+    27) classification-errors-perc
+    28) 0.00
+    29) overfitting-detected
+    30) no
+
+As expected, we have 401 training items and 200 testing dataset.
+Note that for networks declared as classifiers, we have an additional
+field in the info output, which is `classification-errors-perc`. After
+the training this field will be populated with the percentage (from
+0% to 100%) of items in the testing dataset which were misclassified by
+the neural network. It's time to train our network:
+
+    > NR.TRAIN mynet AUTOSTOP
+    Training has started
+
+If we check the `NR.INFO` output after the training, we'll discover a few
+interesting things (only quoting the relevant part of the output):
+
+    19) training-total-steps
+    20) (integer) 64160
+    21) training-total-seconds
+    22) 0.29
+    23) dataset-error
+    24) "0.1264141065389438"
+    25) test-error
+    26) "0.13803731074639586"
+    27) classification-errors-perc
+    28) 19.00
+    29) overfitting-detected
+    30) yes
+
+The network was trained for 0.29 seconds. At the end of the training,
+that was stopped for overfitting, the error rate in the testing dataset
+was 19%.
+
+You can also specify to train for a given amonut of seconds or cycles.
+For now we just use the `AUTOSTOP` feature since it is simpler. However we'll
+dig into more details in the next section.
+
+We can now show the output of the Ruby program after its full execution:
+
+    47 prediction errors on 290 items
+
+Does not look too bad, considering how simple is our model. Modeling just
+on the percentage of people that survived VS the ones that died, we could
+miss-predict more than 100 passengers.
+
+We can also play with a few variables interactively in order to check
+what are the inputs that make a difference according to our trained
+neural network.
+
+Let's start asking the probable outcome for a woman, 30 years old,
+first class, without siblings and parents:
+
+    > NR.RUN mynet 1 0 0 0 1 30 0 0 200
+    1) "0.093071778873849084"
+    2) "0.90242156736283008"
+
+The network is positive she survived, with 90% of probabilities.
+What if she is a lot older than 30 years old, let's say 70?
+
+    > NR.RUN mynet 1 0 0 0 1 70 0 0 200
+    1) "0.11650946245068818"
+    2) "0.88784839170875851"
+
+This lowers her probability to 88.7%.
+And if she traveled in third class with a very cheap ticket?
+
+    > NR.RUN mynet 0 0 1 0 1 70 0 0 20
+    1) "0.53693405013043127"
+    2) "0.51547605838387811"
+
+This time is 50% and 50%... Trow your coin.
+
+The gist of this example is that, many problems you face as a developer
+in order to optimize your application and do better choices in the
+interaction with your users, are Titanic problems, but not on their
+size, in the simplicity that a simple model can solve them.
 
 Overfitting detection and training tricks
 ===
 
+Listing training threads
+===
 
