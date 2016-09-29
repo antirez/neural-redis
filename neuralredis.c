@@ -757,26 +757,6 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         }
     }
 
-    /* Classification networks must have all output set to 0 but one
-     * set to 1, otherwise there is an error in the data. */
-    if (nr->flags & NR_FLAG_CLASSIFIER) {
-        int ones = 0, j;
-        for (j = 0; j < olen; j++) {
-            if (outputs[j] == 1) {
-                ones++;
-            } else if (outputs[j] != 0) {
-                break;
-            }
-        }
-        if (ones != 1 || j != olen) {
-            RedisModule_Free(inputs);
-            RedisModule_Free(outputs);
-            return RedisModule_ReplyWithError(ctx,
-                "ERR classification neural networks outputs must be all zero "
-                "but exactly one set to one");
-        }
-    }
-
     NRTypeInsertData(nr,inputs,outputs);
     RedisModule_Free(inputs);
     RedisModule_Free(outputs);
