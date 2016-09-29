@@ -54,12 +54,16 @@ uint64_t NRNextId = 1; /* Next neural network unique ID. */
 #define NR_FLAG_REGRESSOR (1<<1)        /* NN will be used for regression. */
 #define NR_FLAG_CLASSIFIER (1<<2)       /* NN will be used for classification.*/
 #define NR_FLAG_NORMALIZE (1<<3)        /* Perform input/output normalization.*/
-#define NR_FLAG_AUTO_STOP (1<<4)        /* Auto stop training. */
+#define NR_FLAG_AUTO_STOP (1<<4)        /* Auto stop on training. */
+#define NR_FLAG_OF_DETECTED (1<<5)      /* Auto stopped on overfitting. */
 
 /* Flags to persist when saving the NN. */
-#define NR_FLAG_TO_PRESIST (NN_FLAG_REGRESSOR| \
-                            NN_FLAG_CLASSIFIER| \
-                            NN_FLAG_NORMALIZE)
+#define NR_FLAG_TO_PRESIST (NR_FLAG_REGRESSOR| \
+                            NR_FLAG_CLASSIFIER| \
+                            NR_FLAG_NORMALIZE)
+
+/* Flags to transfer after training. */
+#define NR_FLAG_TO_TRANSFER (NR_FLAG_OF_DETECTED)
 
 #define NR_MAX_LAYERS 32
 
@@ -82,6 +86,8 @@ typedef struct {
     struct Ann *nn;     /* Neural network structure. */
     NRDataset dataset;  /* Training dataset. */
     NRDataset test;     /* Testing dataset. */
+    double dataset_error;   /* Average error in the training dataset. */
+    double test_error;      /* Average error in the test dataset. */
 } NRTypeObject;
 
 struct {
@@ -252,6 +258,10 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     dst->nn = AnnClone(src->nn);
     dst->training_total_steps = src->training_total_steps;
     dst->training_total_ms = src->training_total_ms;
+    dst->dataset_error = src->dataset_error;
+    dst->test_error = src->test_error;
+    dst->flags &= ~NR_FLAG_TO_TRANSFER;
+    dst->flags |= src->flags & NR_FLAG_TO_TRANSFER;
 }
 
 /* Threaded training entry point. */
@@ -259,24 +269,26 @@ void *NRTrainingThreadMain(void *arg) {
     NRPendingTraining *pt = arg;
     NRTypeObject *nr = pt->nr;
     int training_iterations = 1;
+    double train_error = 0;
+    double test_error = 0;
     double past_train_error = 1.0/0;
     double past_test_error = 1.0/0;
     int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
 
     uint64_t cycles;
     long long start = NRMilliseconds();
+    long long cycle_time;
     int overfitting_count = 0;
     while(1) {
         long long cycle_start = NRMilliseconds();
-        double test_error;
-        double train_error = AnnTrain(nr->nn,
-                                      nr->dataset.inputs,
-                                      nr->dataset.outputs,
-                                      0,
-                                      training_iterations,
-                                      nr->dataset.len);
-        double elapsed = NRMilliseconds() - cycle_start;
-        nr->training_total_ms += elapsed;
+        train_error = AnnTrain(nr->nn,
+                               nr->dataset.inputs,
+                               nr->dataset.outputs,
+                               0,
+                               training_iterations,
+                               nr->dataset.len);
+        cycle_time = NRMilliseconds() - cycle_start;
+        nr->training_total_ms += cycle_time;
         nr->training_total_steps += nr->dataset.len*training_iterations;
 
         /* Evaluate the error in the case of auto training, stop it
@@ -287,13 +299,15 @@ void *NRTrainingThreadMain(void *arg) {
                                       nr->test.inputs,
                                       nr->test.outputs,
                                       nr->test.len);
-            // printf("%.21f %.21f\n", train_error, test_error);
 
             if (train_error < past_train_error &&
                 test_error > past_test_error)
             {
                 overfitting_count++;
-                if (overfitting_count == 5) break;
+                if (overfitting_count == 5) {
+                    nr->flags |= NR_FLAG_OF_DETECTED;
+                    break;
+                }
             } else {
                 overfitting_count = 0;
             }
@@ -303,16 +317,33 @@ void *NRTrainingThreadMain(void *arg) {
         }
 
         cycles++;
+        long long total_time = NRMilliseconds()-start;
 
         /* Cycles and milliseconds stop conditions. */
         if (nr->training_max_cycles && cycles == nr->training_max_cycles)
             break;
-        if (nr->training_max_ms && NRMilliseconds()-start > nr->training_max_ms)
+        if (nr->training_max_ms && total_time > nr->training_max_ms)
             break;
+
+        /* If this is a long training, to do just a single training iteration
+         * for each cycle is not optimal: tune the number of iterations to
+         * at least take 100 milliseconds. */
+        if (total_time > 10000 && cycle_time < 100) training_iterations++;
 
         past_train_error = train_error;
         past_test_error = test_error;
     }
+
+    /* If auto stop is disabled, we still need to compute the test error
+     * in order to return this information to the main thread. */
+    if (!auto_stop) {
+        test_error = AnnTestError(nr->nn,
+                                  nr->test.inputs,
+                                  nr->test.outputs,
+                                  nr->test.len);
+    }
+    nr->dataset_error = train_error;
+    nr->test_error = test_error;
 
     /* Signal that the training process has finished, it's up to the main
      * thread to cleanup this training slot, copying the weights to the
@@ -659,15 +690,15 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
 
-    RedisModule_ReplyWithArray(ctx,2*9);
+    RedisModule_ReplyWithArray(ctx,2*12);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"id",2);
+    RedisModule_ReplyWithSimpleString(ctx,"id");
     RedisModule_ReplyWithLongLong(ctx,nr->id);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"training",8);
+    RedisModule_ReplyWithSimpleString(ctx,"training");
     RedisModule_ReplyWithLongLong(ctx,nr->flags & NR_FLAG_TRAINING);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"layout",6);
+    RedisModule_ReplyWithSimpleString(ctx,"layout");
     RedisModule_ReplyWithArray(ctx,LAYERS(nr->nn));
     for (int i = LAYERS(nr->nn)-1; i >= 0; i--) {
         int units = UNITS(nr->nn,i);
@@ -675,23 +706,32 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
         RedisModule_ReplyWithLongLong(ctx,units);
     }
 
-    RedisModule_ReplyWithStringBuffer(ctx,"training-dataset-maxlen",23);
+    RedisModule_ReplyWithSimpleString(ctx,"training-dataset-maxlen");
     RedisModule_ReplyWithLongLong(ctx,nr->dataset.maxlen);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"training-dataset-len",20);
+    RedisModule_ReplyWithSimpleString(ctx,"training-dataset-len");
     RedisModule_ReplyWithLongLong(ctx,nr->dataset.len);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"test-dataset-maxlen",19);
+    RedisModule_ReplyWithSimpleString(ctx,"test-dataset-maxlen");
     RedisModule_ReplyWithLongLong(ctx,nr->test.maxlen);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"test-dataset-len",16);
+    RedisModule_ReplyWithSimpleString(ctx,"test-dataset-len");
     RedisModule_ReplyWithLongLong(ctx,nr->test.len);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"training-total-steps",20);
+    RedisModule_ReplyWithSimpleString(ctx,"training-total-steps");
     RedisModule_ReplyWithLongLong(ctx,nr->training_total_steps);
 
-    RedisModule_ReplyWithStringBuffer(ctx,"training-total-ms",17);
+    RedisModule_ReplyWithSimpleString(ctx,"training-total-ms");
     RedisModule_ReplyWithLongLong(ctx,nr->training_total_ms);
+
+    RedisModule_ReplyWithSimpleString(ctx,"dataset-error");
+    RedisModule_ReplyWithDouble(ctx,nr->dataset_error);
+
+    RedisModule_ReplyWithSimpleString(ctx,"test-error");
+    RedisModule_ReplyWithDouble(ctx,nr->test_error);
+
+    RedisModule_ReplyWithSimpleString(ctx,"overfitting-detected");
+    RedisModule_ReplyWithSimpleString(ctx, (nr->flags & NR_FLAG_OF_DETECTED) ? "yes" : "no");
 
     return REDISMODULE_OK;
 }

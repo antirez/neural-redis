@@ -615,11 +615,11 @@ double AnnResilientBPEpoch(struct Ann *net, double *input, double *desidered, in
         desidered += outputs;
     }
     AnnAdjustWeightsResilientBP(net);
-    return error;
+    return error / setlen;
 }
 
 /* Simulate the entire test dataset with the neural network and returns the
- * sum of the error of all the entries tested. */
+ * average error of all the entries tested. */
 double AnnTestError(struct Ann *net, double *input, double *desidered, int setlen) {
     double error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
@@ -629,7 +629,7 @@ double AnnTestError(struct Ann *net, double *input, double *desidered, int setle
         input += inputs;
         desidered += outputs;
     }
-    return error;
+    return error/setlen;
 }
 
 /* Train the net */
