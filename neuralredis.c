@@ -279,6 +279,7 @@ void *NRTrainingThreadMain(void *arg) {
     long long cycle_time;
     int overfitting_count = 0;
     int overfitting_limit = 5;
+    double best_test_error = 1.0/0;
 
     nr->flags &= ~NR_FLAG_TO_TRANSFER;
     while(1) {
@@ -310,13 +311,13 @@ void *NRTrainingThreadMain(void *arg) {
                     nr->flags |= NR_FLAG_OF_DETECTED;
                     break;
                 }
-            } else {
-                /* To detect overfitting we want to see it happening
-                 * consecutively two times more the longest sequence
-                 * we saw inverting the trend. */
-                if (overfitting_count+2 > overfitting_limit)
-                    overfitting_limit = overfitting_count+2;
+            } else if (overfitting_count > 0) {
+                overfitting_count--;
+            }
+
+            if (test_error < best_test_error) {
                 overfitting_count = 0;
+                best_test_error = test_error;
                 printf("!YCLE %lld: <%d> %f VS %f\n", cycles,overfitting_limit,train_error, test_error);
             }
 
