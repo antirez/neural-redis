@@ -751,7 +751,8 @@ point. This is the ASCII-artist result:
 As you can see, while the problem had no linear solution, the neural network
 was able to split the 2D space into areas, with the *holes* where there
 is the intersection between the circles areas, and thiner surfaces where the
-circles actually cross each other.
+circles actually cross each other (in the intersection between the two
+circumferences there are points of two different classes).
 
 This example was not practical perhaps but shows well the power of the
 neural network in non linear tasks.
