@@ -608,6 +608,17 @@ However it's not always like that, so to test things manually is a good
 idea when working at machine learning experiments, especially with this
 module that is experimental.
 
+An interesting example is the `iris.rb` program inside the `examples`
+directory: it will load the `Iris.csv` dataset into Redis, which is
+a very popular dataset with three variants of Iris flowers with their
+sepal and petal features. If you run the program, the percentage of
+entries classified in a wrong way will be 4%, however if you train the
+network a few more cycles with:
+
+    NR.TRAIN iris MAXCYCLES 100
+
+You'll see that often the error will drop to 2%.
+
 A more complex non linear classification example
 ===
 
