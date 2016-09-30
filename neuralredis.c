@@ -1015,8 +1015,8 @@ void NRTypeRdbLoadDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint
 
     if (ds->len == 0) return;
 
-    ds->inputs = RedisModule_Alloc(ilen*ds->len);
-    ds->outputs = RedisModule_Alloc(olen*ds->len);
+    ds->inputs = RedisModule_Alloc(ilen*ds->len*sizeof(double));
+    ds->outputs = RedisModule_Alloc(olen*ds->len*sizeof(double));
 
     for (int j = 0; j < ilen*ds->len; j++)
         ds->inputs[j] = RedisModule_LoadDouble(rdb);
@@ -1030,13 +1030,14 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
 
     /* Load the network layout. */
     uint64_t numlayers = RedisModule_LoadUnsigned(rdb);
-    int *layers = RedisModule_Alloc(numlayers);
+    int *layers = RedisModule_Alloc(sizeof(int)*numlayers);
     for (int j = 0; j < numlayers; j++)
         layers[j] = RedisModule_LoadUnsigned(rdb);
 
     /* Load flags and create the object. */
     uint32_t flags = RedisModule_LoadUnsigned(rdb);
     NRTypeObject *nr = createNRTypeObject(flags,layers,numlayers,0,0);
+    RedisModule_Free(layers);
 
     /* Load and set the object metadata. */
     nr->id = RedisModule_LoadUnsigned(rdb);
