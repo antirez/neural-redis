@@ -544,7 +544,6 @@ void AnnResetSgradient(struct Ann *net) {
 void AnnSetRandomWeights(struct Ann *net) {
     int i, j, k;
 
-    srand(time(NULL));
     for (i = 1; i < LAYERS(net); i++) {
         for (k = 0; k < UNITS(net, i-1); k++) {
             for (j = 0; j < UNITS(net, i); j++) {
