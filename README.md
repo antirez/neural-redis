@@ -619,6 +619,25 @@ network a few more cycles with:
 
 You'll see that often the error will drop to 2%.
 
+Better overfitting detection with the BACKTRACK option
+===
+
+When using `AUTOSTOP`, there is an additional option that can be specified
+(it has no effects alone), that is: `BACKTRACK`. When backtracking is
+enabled, while the network is trained, every time there is some hint
+that the network may start to overfit, the current version of the network
+is saved. At the end of the training, if the saved network is better
+(has a smaller error) compared to the current one, it is used instead
+of the final version of the trained network.
+
+This avoids certain pathological runs when `AUTOSTOP` is used but
+overfitting is not detected. However, it adds running time since we
+need to clone the NN from time to time during the training.
+
+For example using `BACKTRACK` with the Iris dataset (see the `iris.rb`
+file inside the examples directory) it never overtrains, while without
+about 2% of the runs may overtrain.
+
 A more complex non linear classification example
 ===
 
@@ -808,7 +827,7 @@ Run the network stored at key, returning an array of outputs.
 
 Like `NR.RUN` but can be used only with NNs of type CLASSIFIER. Instead of outputting the raw neural network outputs, the command returns the output class directly, which is, the index of the output with the greatest value.
 
-## NR.TRAIN key [MAXCYCLES count] [MAXTIME milliseconds] [AUTOSTOP]
+## NR.TRAIN key [MAXCYCLES count] [MAXTIME milliseconds] [AUTOSTOP] [BACKTRACK]
 
 Train a network in a background thread. When the training finishes
 automatically updates the weights of the trained networks with the
@@ -827,6 +846,12 @@ umber of cycles or milliseconds is specified, but will also try to stop
 the training if overfitting is detected. Check the previous sections for
 a description of the (still naive) algorithm the implementation uses in
 order to stop.
+
+If BACKTRACK is specified, and AUTOSTOP is also specified, while the network
+is trained, the trainer thread saves a copy of the neural network every
+time it has a better score compared to the previously saved one and there are
+hints suggesting that overfitting may happen soon. This network is used later
+if it is found to have a smaller error.
 
 ## NR.INFO key
 
