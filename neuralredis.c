@@ -33,6 +33,8 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define _DEFAULT_SOURCE /* for strcasecmp() */
+
 #include "redismodule.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -295,8 +297,8 @@ void *NRTrainingThreadMain(void *arg) {
     int training_iterations = 1;
     double train_error = 0;
     double test_error = 0;
-    double past_train_error = 1.0/0;
-    double past_test_error = 1.0/0;
+    double past_train_error = 1.0/0.0;
+    double past_test_error = 1.0/0.0;
     int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
 
     uint64_t cycles;
@@ -304,7 +306,7 @@ void *NRTrainingThreadMain(void *arg) {
     long long cycle_time;
     int overfitting_count = 0;
     int overfitting_limit = 5;
-    double best_test_error = 1.0/0;
+    double best_test_error = 1.0/0.0;
 
     nr->flags &= ~NR_FLAG_TO_TRANSFER;
 
@@ -392,7 +394,8 @@ void *NRTrainingThreadMain(void *arg) {
                 test_error > past_test_error)
             {
                 overfitting_count++;
-                printf("CYCLE %lld: [%d] %f VS %f\n", cycles,overfitting_count,train_error, test_error);
+                printf("CYCLE %lld: [%d] %f VS %f\n", (long long)cycles,
+                    overfitting_count, train_error, test_error);
                 if (overfitting_count == overfitting_limit) {
                     nr->flags |= NR_FLAG_OF_DETECTED;
                     break;
@@ -404,7 +407,8 @@ void *NRTrainingThreadMain(void *arg) {
             if (test_error < best_test_error) {
                 overfitting_count = 0;
                 best_test_error = test_error;
-                printf("!YCLE %lld: <%d> %f VS %f\n", cycles,overfitting_limit,train_error, test_error);
+                printf("!YCLE %lld: <%d> %f VS %f\n", (long long)cycles,
+                    overfitting_limit,train_error, test_error);
             }
 
             /* Also stop if the loss is zero in both datasets. */
@@ -939,8 +943,10 @@ int NRThreads_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         NRPendingTraining *pt = &NRTrainings[j];
         const char *keyname = RedisModule_StringPtrLen(pt->key,NULL);
         snprintf(buf,sizeof(buf),"nn_id=%llu key=%s db=%d maxtime=%llu maxcycles=%llu",
-            pt->nr->id, keyname, pt->db_id, pt->nr->training_max_ms,
-            pt->nr->training_max_cycles);
+            (unsigned long long)pt->nr->id,
+            keyname, pt->db_id,
+            (unsigned long long)pt->nr->training_max_ms,
+            (unsigned long long)pt->nr->training_max_cycles);
         RedisModule_ReplyWithSimpleString(ctx,buf);
     }
     pthread_mutex_unlock(&NRPendingTrainingMutex);
