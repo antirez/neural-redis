@@ -19,7 +19,7 @@ The project starts from the observation that, while complex problems like
 computer vision need slow to train and complex neural networks setups, many
 regression and classification problems that are able to enhance the user
 experience in many applications, are approachable by feed forward fully
-connected small networks, that are very fast to rain, very generic, and
+connected small networks, that are very fast to train, very generic, and
 robust against non optimal parameters configurations.
 
 Neural Redis implements:
