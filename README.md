@@ -522,7 +522,7 @@ And if she traveled in third class with a very cheap ticket?
     1) "0.53693405013043127"
     2) "0.51547605838387811"
 
-This time is 50% and 50%... Trow your coin.
+This time is 50% and 50%... Throw your coin.
 
 The gist of this example is that, many problems you face as a developer
 in order to optimize your application and do better choices in the
