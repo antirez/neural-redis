@@ -723,7 +723,7 @@ int NRClass_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return NRGenericRun_RedisCommand(ctx,argv,argc,1);
 }
 
-/* NR.OBSERVE key [TRAIN|TEST] input1 [input2 input3 ... inputN] -> output */
+/* NR.OBSERVE key input1 [input2 input3 ... inputN] -> output [TRAIN|TEST] */
 int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
     NRCollectThreads(ctx);

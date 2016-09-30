@@ -608,6 +608,87 @@ However it's not always like that, so to test things manually is a good
 idea when working at machine learning experiments, especially with this
 module that is experimental.
 
+A more complex non linear classification example
+===
+
+The Titanic example is surely more interesting, however it is possible
+that most relations between input and output are linear, so we'll now
+try a non linear classification task, just for the sake of showing the
+capabilities of a small neural network.
+
+In the examples directory of this source distribution there is an example
+doing just this called `circles.rb`.
+
+    WORK IN PROGRESS
+
+API reference
+===
+
+In the above tutorial not all the options of all the commands may be
+covered, so here there is a small reference with all the commands
+supported by this extension and associated options.
+
+### NR.CREATE key [CLASSIFIER|REGRESSOR] inputs [hidden-layer-units ...] -> outputs [NORMALIZE] [DATASET maxlen] [TEST maxlen]
+
+Create a new neural network if the target key is empty, or returns an error.
+
+* key - The key name holding the neural network.
+* CLASSIFIER or REGRESSOR is the network type, read this tutorial for more info.
+* inputs - Number of input units
+* hidden-layer-units zero or more arguments indicating the number of hidden units, one number for each layer.
+* outputs - Number of outputs units
+* NORMALIZE - Specify if you want the network to normalize your inputs. Use this if you don't know what we are talking about.
+* DATASET maxlen - Max number of data samples in the training dataset.
+* TEST maxlen - Max number of data samples in the testing dataset.
+
+Example:
+
+    NR.CREATE mynet CLASSIFIER 64 100 -> 10 NORMALIZE DATASET 1000 TEST 500
+
+### NR.OBSERVE key i0 i1 i2 i3 i4 ... iN -> o0 o1 o3 ... oN [TRAIN|TEST]
+
+Add a data sample into the training or testing dataset (if specified as last argument) or evenly into one or the other, according to their respective sizes, if no target is specified.
+
+For neural networks of type CLASSIFIER the output must be just one, in the range from 0 to `number-of-outputs - 1`. It's up to the network to translate the class ID into a set of zeros and ones.
+
+The command returns the number of data samples inside the training and testing dataset. If the target datasets are already full, a random entry is evicted and substituted with the new data.
+
+## NR.RUN key i0 i1 i2 i3 i4 ... iN
+
+Run the network stored at key, returning an array of outputs.
+
+## NR.CLASS key i0 i1 i2 i3 i4 ... iN
+
+Like `NR.RUN` but can be used only with NNs of type CLASSIFIER. Instead of outputting the raw neural network outputs, the command returns the output class directly, which is, the index of the output with the greatest value.
+
+## NR.TRAIN key [MAXCYCLES count] [MAXTIME milliseconds] [AUTOSTOP]
+
+Train a network in a background thread. When the training finishes
+automatically updates the weights of the trained networks with the
+new ones and updates the training statistics.
+
+The command works with a copy of the network, so it is possible to
+use the network while it is undergoing a training.
+
+If no AUTOSTOP is specified, trains the network till the maximum number of
+cycles or milliseconds are reached. If no maximum number of cycles is specified
+there are no cycles limits. If no milliseconds are specified, the limit is
+set to 10000 milliseconds (10 seconds).
+
+If AUTOSTOP is specified, the training will still stop when the maximum 
+umber of cycles or milliseconds is specified, but will also try to stop
+the training if overfitting is detected. Check the previous sections for
+a description of the (still naive) algorithm the implementation uses in
+order to stop.
+
+## NR.INFO key
+
+Show many internal information about the neural network. Just try it :-)
+
+## NR.THREADS
+
+Show all the active training threads.
+
 Contributing
 ===
 
