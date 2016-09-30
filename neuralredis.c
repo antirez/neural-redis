@@ -304,7 +304,7 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
 /* Threaded training entry point.
  *
  * To get some clue about overfitting algorithm behavior:
- * #define NR_TRAINING_DEBUG 0
+ * #define NR_TRAINING_DEBUG 1
  */
 void *NRTrainingThreadMain(void *arg) {
     NRPendingTraining *pt = arg;
@@ -321,7 +321,7 @@ void *NRTrainingThreadMain(void *arg) {
     long long start = NRMilliseconds();
     long long cycle_time;
     int overfitting_count = 0;
-    int overfitting_limit = backtrack ? 10 : 5;
+    int overfitting_limit = 5;
     double best_test_error = 1.0/0.0;
 
     nr->flags &= ~NR_FLAG_TO_TRANSFER;

@@ -45,7 +45,7 @@ end
 
 feed_dataset(r,1000,:feed)
 puts "Data sent, training"
-r.send('nr.train',:mynet2,:autostop,:maxtime,60000)
+r.send('nr.train',:mynet2,:autostop,:backtrack,:maxtime,10000)
 
 while true
     nninfo = r.send('nr.info',:mynet2)
