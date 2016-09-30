@@ -949,32 +949,117 @@ int NRThreads_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
 /* =============================== Type methods ============================= */
 
-void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
-#if 0
-    if (encver != 0) {
-        /* RedisModule_Log("warning","Can't load data with version %d", encver);*/
-        return NULL;
-    }
-    uint64_t elements = RedisModule_LoadUnsigned(rdb);
-    NRTypeObject *hto = createNRTypeObject();
-    while(elements--) {
-        int64_t ele = RedisModule_LoadSigned(rdb);
-        NRTypeInsert(hto,ele);
-    }
-    return hto;
-#endif
+/* Helper for NRTypeRdbSave(): serialize a NRDataset dataset to RDB. */
+void NRTypeRdbSaveDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint32_t olen) {
+    RedisModule_SaveUnsigned(rdb,ds->len);
+    RedisModule_SaveUnsigned(rdb,ds->maxlen);
+    for (int j = 0; j < ilen*ds->len; j++)
+        RedisModule_SaveDouble(rdb,ds->inputs[j]);
+    for (int j = 0; j < olen*ds->len; j++)
+        RedisModule_SaveDouble(rdb,ds->outputs[j]);
 }
 
+/* Serialize a neural network object with its associated dataset
+ * in RDB format. */
 void NRTypeRdbSave(RedisModuleIO *rdb, void *value) {
-#if 0
-    NRTypeObject *hto = value;
-    struct NRTypeNode *node = hto->head;
-    RedisModule_SaveUnsigned(rdb,hto->len);
-    while(node) {
-        RedisModule_SaveSigned(rdb,node->value);
-        node = node->next;
+    NRTypeObject *nr = value;
+
+    /* Save the neural network layout. */
+    RedisModule_SaveUnsigned(rdb,LAYERS(nr->nn));
+    for (int j = 0; j < LAYERS(nr->nn); j++) {
+        int units = UNITS(nr->nn,j);
+        if (j != 0) units--; /* Don't count the bias unit. */
+        RedisModule_SaveUnsigned(rdb,units);
     }
-#endif
+
+    /* Save the object metadata. */
+    RedisModule_SaveUnsigned(rdb,nr->flags & NR_FLAG_TO_PRESIST);
+    RedisModule_SaveUnsigned(rdb,nr->id);
+    RedisModule_SaveUnsigned(rdb,nr->training_total_steps);
+    RedisModule_SaveUnsigned(rdb,nr->training_total_ms);
+    RedisModule_SaveUnsigned(rdb,nr->training_max_cycles);
+    RedisModule_SaveUnsigned(rdb,nr->training_max_ms);
+    RedisModule_SaveDouble(rdb,nr->dataset_error);
+    RedisModule_SaveDouble(rdb,nr->test_error);
+    RedisModule_SaveDouble(rdb,nr->test_class_error);
+
+    /* Save the neural network weights and biases. We start
+     * at layer 1 since the first layer are just outputs. */
+    for (int j = 1; j < LAYERS(nr->nn); j++) {
+        int weights = WEIGHTS(nr->nn,j);
+        for (int i = 0; i < weights; i++)
+            RedisModule_SaveDouble(rdb,nr->nn->layer[j].weight[i]);
+    }
+
+    /* Save the normalization vectors. */
+    uint32_t ilen = INPUT_UNITS(nr->nn);
+    uint32_t olen = OUTPUT_UNITS(nr->nn);
+    for (int j = 0; j < ilen; j++) RedisModule_SaveDouble(rdb,nr->inorm[j]);
+    for (int j = 0; j < olen; j++) RedisModule_SaveDouble(rdb,nr->onorm[j]);
+
+    /* Save the dataset. */
+    NRTypeRdbSaveDataset(rdb,&nr->dataset,ilen,olen);
+    NRTypeRdbSaveDataset(rdb,&nr->test,ilen,olen);
+}
+
+/* Helper for NRTypeRdbLoad(): deserialize a NRDataset dataset from RDB. */
+void NRTypeRdbLoadDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint32_t olen) {
+    ds->len = RedisModule_LoadUnsigned(rdb);
+    ds->maxlen = RedisModule_LoadUnsigned(rdb);
+
+    if (ds->len == 0) return;
+
+    ds->inputs = RedisModule_Alloc(ilen*ds->len);
+    ds->outputs = RedisModule_Alloc(olen*ds->len);
+
+    for (int j = 0; j < ilen*ds->len; j++)
+        ds->inputs[j] = RedisModule_LoadDouble(rdb);
+    for (int j = 0; j < olen*ds->len; j++)
+        ds->outputs[j] = RedisModule_LoadDouble(rdb);
+}
+
+/* Load a neural network and its associated dataset from RDB. */
+void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
+    if (encver != 0) return NULL;
+
+    /* Load the network layout. */
+    uint64_t numlayers = RedisModule_LoadUnsigned(rdb);
+    int *layers = RedisModule_Alloc(numlayers);
+    for (int j = 0; j < numlayers; j++)
+        layers[j] = RedisModule_LoadUnsigned(rdb);
+
+    /* Load flags and create the object. */
+    uint32_t flags = RedisModule_LoadUnsigned(rdb);
+    NRTypeObject *nr = createNRTypeObject(flags,layers,numlayers,0,0);
+
+    /* Load and set the object metadata. */
+    nr->id = RedisModule_LoadUnsigned(rdb);
+    nr->training_total_steps = RedisModule_LoadUnsigned(rdb);
+    nr->training_total_ms = RedisModule_LoadUnsigned(rdb);
+    nr->training_max_cycles = RedisModule_LoadUnsigned(rdb);
+    nr->training_max_ms = RedisModule_LoadUnsigned(rdb);
+    nr->dataset_error = RedisModule_LoadDouble(rdb);
+    nr->test_error = RedisModule_LoadDouble(rdb);
+    nr->test_class_error = RedisModule_LoadDouble(rdb);
+
+    /* Load the neural network weights. */
+    for (int j = 1; j < LAYERS(nr->nn); j++) {
+        int weights = WEIGHTS(nr->nn,j);
+        for (int i = 0; i < weights; i++)
+            nr->nn->layer[j].weight[i] = RedisModule_LoadDouble(rdb);
+    }
+
+    /* Load the normalization vector. */
+    uint32_t ilen = INPUT_UNITS(nr->nn);
+    uint32_t olen = OUTPUT_UNITS(nr->nn);
+    for (int j = 0; j < ilen; j++) nr->inorm[j] = RedisModule_LoadDouble(rdb);
+    for (int j = 0; j < olen; j++) nr->onorm[j] = RedisModule_LoadDouble(rdb);
+
+    /* Load the dataset. */
+    NRTypeRdbLoadDataset(rdb,&nr->dataset,ilen,olen);
+    NRTypeRdbLoadDataset(rdb,&nr->test,ilen,olen);
+
+    return nr;
 }
 
 void NRTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
