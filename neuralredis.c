@@ -404,8 +404,10 @@ void *NRTrainingThreadMain(void *arg) {
                 test_error > past_test_error)
             {
                 overfitting_count++;
+                /*
                 printf("CYCLE %lld: [%d] %f VS %f\n", (long long)cycles,
                     overfitting_count, train_error, test_error);
+                */
                 if (overfitting_count == overfitting_limit) {
                     nr->flags |= NR_FLAG_OF_DETECTED;
                     break;
@@ -417,8 +419,10 @@ void *NRTrainingThreadMain(void *arg) {
             if (test_error < best_test_error) {
                 overfitting_count = 0;
                 best_test_error = test_error;
+                /*
                 printf("!YCLE %lld: <%d> %f VS %f\n", (long long)cycles,
                     overfitting_limit,train_error, test_error);
+                */
             }
 
             /* Also stop if the loss is zero in both datasets. */
