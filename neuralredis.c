@@ -160,16 +160,26 @@ NRTypeObject *createNRTypeObject(int flags, int *layers, int numlayers, int dset
  * are already full, a random elmenet from one or the other (doing
  * a random weighted choice depending on the length) is substituted with
  * the new item. */
-void NRTypeInsertData(NRTypeObject *o, double *inputs, double *outputs) {
-    NRDataset *target;
+#define NR_INSERT_NO_TARGET 0   /* Auto select where to insert. */
+#define NR_INSERT_TRAIN 1       /* Insert in training dataset. */
+#define NR_INSERT_TEST 2        /* Insert in testing dataset. */
+void NRTypeInsertData(NRTypeObject *o, double *inputs, double *outputs,
+                      int target_ds) {
+    NRDataset *target = NULL;
 
     /* Check if there is no dataset at all. This may be a valid setup
      * with online learning, sample by sample. */
     if (o->dataset.maxlen == 0 && o->test.maxlen == 0) return;
 
-    /* Select target, to populate the one with less data compared to size. */
-    if (o->dataset.len != o->dataset.maxlen ||
-        o->test.len != o->dataset.len)
+    /* If the user specified a target, select it. */
+    if (target_ds == NR_INSERT_TRAIN) target = &o->dataset;
+    else if (target_ds == NR_INSERT_TEST) target = &o->test;
+
+    /* Otherwise choose as the target to populate the one with less data
+     * relatively to its size. */
+    if (target == NULL &&
+        (o->dataset.len != o->dataset.maxlen ||
+         o->test.len != o->dataset.len))
     {
         if (o->dataset.maxlen == 0) {
             target = &o->test;
@@ -713,7 +723,7 @@ int NRClass_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return NRGenericRun_RedisCommand(ctx,argv,argc,1);
 }
 
-/* NR.OBSERVE key input1 [input2 input3 ... inputN] -> output */
+/* NR.OBSERVE key [TRAIN|TEST] input1 [input2 input3 ... inputN] -> output */
 int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
     NRCollectThreads(ctx);
@@ -729,6 +739,17 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     int ilen = INPUT_UNITS(nr->nn);
     int olen = OUTPUT_UNITS(nr->nn);
     int oargs = (nr->flags & NR_FLAG_CLASSIFIER) ? 1 : olen;
+    int target = NR_INSERT_NO_TARGET;
+
+    /* The last argument may specify the training target:
+     * testing or training dataset. */
+    if (!strcasecmp(RedisModule_StringPtrLen(argv[argc-1],NULL),"train")) {
+        target = NR_INSERT_TRAIN;
+        argc--;
+    } else if (!strcasecmp(RedisModule_StringPtrLen(argv[argc-1],NULL),"test")){
+        target = NR_INSERT_TEST;
+        argc--;
+    }
 
     if (argc != oargs+ilen+3)
         return RedisModule_ReplyWithError(ctx,
@@ -775,7 +796,7 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         }
     }
 
-    NRTypeInsertData(nr,inputs,outputs);
+    NRTypeInsertData(nr,inputs,outputs,target);
     RedisModule_Free(inputs);
     RedisModule_Free(outputs);
 

@@ -45,8 +45,6 @@ def feed_data(r,dataset,mode)
             res = r.send('nr.class',:mynet,*inputs)
             if res != outputs
                 errors += 1
-            else
-                print "#{inputs} -> #{outputs}\n"
             end
         end
     }
