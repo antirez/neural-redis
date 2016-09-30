@@ -425,6 +425,7 @@ void *NRTrainingThreadMain(void *arg) {
                         printf("SAVED! %f < %f\n", test_error, saved_error);
                         #endif
                         saved_error = test_error;
+                        if (saved) AnnFree(saved);
                         saved = AnnClone(nr->nn);
                     }
                 }
