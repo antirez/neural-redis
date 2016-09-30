@@ -59,6 +59,7 @@ uint64_t NRNextId = 1; /* Next neural network unique ID. */
 #define NR_FLAG_NORMALIZE (1<<3)        /* Perform input/output normalization.*/
 #define NR_FLAG_AUTO_STOP (1<<4)        /* Auto stop on training. */
 #define NR_FLAG_OF_DETECTED (1<<5)      /* Auto stopped on overfitting. */
+#define NR_FLAG_BACKTRACK (1<<6)        /* Auto stop with backtracking. */
 
 /* Flags to persist when saving the NN. */
 #define NR_FLAG_TO_PRESIST (NR_FLAG_REGRESSOR| \
@@ -300,7 +301,11 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     memcpy(dst->onorm,src->onorm,sizeof(double)*olen);
 }
 
-/* Threaded training entry point. */
+/* Threaded training entry point.
+ *
+ * To get some clue about overfitting algorithm behavior:
+ * #define NR_TRAINING_DEBUG 0
+ */
 void *NRTrainingThreadMain(void *arg) {
     NRPendingTraining *pt = arg;
     NRTypeObject *nr = pt->nr;
@@ -310,12 +315,13 @@ void *NRTrainingThreadMain(void *arg) {
     double past_train_error = 1.0/0.0;
     double past_test_error = 1.0/0.0;
     int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
+    int backtrack = nr->flags & NR_FLAG_BACKTRACK;
 
     uint64_t cycles;
     long long start = NRMilliseconds();
     long long cycle_time;
     int overfitting_count = 0;
-    int overfitting_limit = 5;
+    int overfitting_limit = backtrack ? 10 : 5;
     double best_test_error = 1.0/0.0;
 
     nr->flags &= ~NR_FLAG_TO_TRANSFER;
@@ -380,6 +386,9 @@ void *NRTrainingThreadMain(void *arg) {
         }
     }
 
+    struct Ann *saved = NULL;  /* Saved to recover on overfitting. */
+    double saved_error;        /* The error of the saved net. */
+
     while(1) {
         long long cycle_start = NRMilliseconds();
         train_error = AnnTrain(nr->nn,
@@ -403,26 +412,46 @@ void *NRTrainingThreadMain(void *arg) {
             if (train_error < past_train_error &&
                 test_error > past_test_error)
             {
+                /* When back tracking is active, we can't save every single
+                 * network with a score better compared to the currently
+                 * saved one: we would burn a lot of cycles doing this.
+                 * Instead we only save a network which has a better score
+                 * compared to the previously saved when we see an overtraining
+                 * "hint", that is, the two datasets errors going in
+                 * opposite directions. */
+                if (backtrack) {
+                    if (saved == NULL || test_error < saved_error) {
+                        #ifdef NR_TRAINING_DEBUG
+                        printf("SAVED! %f < %f\n", test_error, saved_error);
+                        #endif
+                        saved_error = test_error;
+                        saved = AnnClone(nr->nn);
+                    }
+                }
                 overfitting_count++;
-                /*
-                printf("CYCLE %lld: [%d] %f VS %f\n", (long long)cycles,
+                #ifdef NR_TRAINING_DEBUG
+                printf("+YCLE %lld: [%d] %f VS %f\n", (long long)cycles,
                     overfitting_count, train_error, test_error);
-                */
+                #endif
                 if (overfitting_count == overfitting_limit) {
                     nr->flags |= NR_FLAG_OF_DETECTED;
                     break;
                 }
             } else if (overfitting_count > 0) {
+                #ifdef NR_TRAINING_DEBUG
+                printf("-YCLE %lld: [%d] %f VS %f\n", (long long)cycles,
+                    overfitting_count, train_error, test_error);
+                #endif
                 overfitting_count--;
             }
 
             if (test_error < best_test_error) {
                 overfitting_count = 0;
                 best_test_error = test_error;
-                /*
-                printf("!YCLE %lld: <%d> %f VS %f\n", (long long)cycles,
+                #ifdef NR_TRAINING_DEBUG
+                printf("BEST! %lld: <%d> %f VS %f\n", (long long)cycles,
                     overfitting_limit,train_error, test_error);
-                */
+                #endif
             }
 
             /* Also stop if the loss is zero in both datasets. */
@@ -457,6 +486,20 @@ void *NRTrainingThreadMain(void *arg) {
                                   nr->test.len);
     }
 
+    /* If both autostop and backtracking are enabled, we may have
+     * a better network saved! */
+    if (auto_stop && backtrack) {
+        if (saved && saved_error < test_error) {
+            #ifdef NR_TRAINING_DEBUG
+            printf("BACKTRACK: Saved network used!\n");
+            #endif
+            AnnFree(nr->nn);
+            nr->nn = saved;
+        } else if (saved) {
+            AnnFree(saved);
+        }
+    }
+
     /* If this is a classification net, compute the percentage of
      * wrong classifications. */
     if (nr->flags & NR_FLAG_CLASSIFIER) {
@@ -487,7 +530,9 @@ void *NRTrainingThreadMain(void *arg) {
  * The 'flags' argument specifies the additional NN flags to pass to the
  * training ruotine:
  *
- *  NR_FLAG_AUTO_STOP -- Automatically stop training on overtraining. */
+ *  NR_FLAG_AUTO_STOP -- Automatically stop training on overtraining.
+ *  NR_FLAG_BACKTRACK -- Save current NN state when overfitting is likely.
+ */
 int NRStartTraining(RedisModuleCtx *ctx, RedisModuleString *key, int dbid, NRTypeObject *nr) {
     pthread_mutex_lock(&NRPendingTrainingMutex);
     if (NRPendingTrainingCount == NR_PENDING_TRAINING_MAX_LEN) {
@@ -829,7 +874,7 @@ int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     nr->training_max_cycles = 0;
     nr->training_max_ms = 10000;
-    nr->flags &= ~(NR_FLAG_AUTO_STOP);
+    nr->flags &= ~(NR_FLAG_AUTO_STOP|NR_FLAG_BACKTRACK);
 
     for (int j = 2; j < argc; j++) {
         const char *o = RedisModule_StringPtrLen(argv[j], NULL);
@@ -838,6 +883,8 @@ int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
         if (!strcasecmp(o,"autostop")) {
             nr->flags |= NR_FLAG_AUTO_STOP;
+        } else if (!strcasecmp(o,"backtrack")) {
+            nr->flags |= NR_FLAG_BACKTRACK;
         } else if (!strcasecmp(o,"maxcycles") && !lastarg) {
             if (RedisModule_StringToLongLong(argv[++j],&v) != REDISMODULE_OK) {
                 return RedisModule_ReplyWithError(ctx,
