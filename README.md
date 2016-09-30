@@ -713,6 +713,14 @@ The simplest way to guarantee this is to have a set of benchmarks of different
 types using open datasets, and to score different implementations against
 it.
 
+Plans
+===
+
+* Better overfitting detection.
+* Implement RNNs with a simpler to use API.
+* Use a different loss function for classification NNs.
+* Get some ML expert which is sensible to simple APIs involved.
+
 Have fun with machine learning,
 
 Salvatore
