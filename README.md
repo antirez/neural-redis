@@ -861,6 +861,13 @@ Show many internal information about the neural network. Just try it :-)
 
 Show all the active training threads.
 
+## NR.RESET key
+
+Set the neural network weights to random ones (that is, the network will
+completely unlearn what it learned so far), and reset training statistics.
+However the datasets are not touched at all. This is useful when you
+want to retrain a network from scratch.
+
 Contributing
 ===
 

@@ -923,6 +923,40 @@ int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
 }
 
+/* NR.RESET key -- Set random weights in the NN and clear training stats. */
+int NRReset_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
+
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
+        REDISMODULE_READ|REDISMODULE_WRITE);
+    int type = RedisModule_KeyType(key);
+    if (RedisModule_ModuleTypeGetType(key) != NRType)
+        return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
+
+    NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
+
+    /* Change the ID so that if there is a training in progress it will
+     * not update the weights of this network. */
+    nr->id = NRNextId++;
+
+    /* Reset training stats. */
+    nr->training_total_steps = 0;
+    nr->training_total_ms = 0;
+    nr->training_max_cycles = 0;
+    nr->training_max_ms = 0;
+    nr->dataset_error = 0;
+    nr->test_error = 0;
+    nr->test_class_error = 0;
+
+    /* Set random weights in the neural network, which is
+     * "untrain" the network. */
+    AnnSetRandomWeights(nr->nn);
+
+    return RedisModule_ReplyWithSimpleString(ctx,"OK");
+}
+
 /* NR.INFO key */
 int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     char buf[128];
@@ -1194,6 +1228,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"nr.train",
         NRTrain_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"nr.reset",
+        NRReset_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"nr.threads",
