@@ -41,7 +41,7 @@ have a simple access to machine learning, in order to answer questions like:
 
 Of course you can do more, since neural networks are pretty flexible. You
 can even have fun with computer visions datasets like
-[MINST](http://yann.lecun.com/exdb/mnist/), however keep in mind that
+[MNIST](http://yann.lecun.com/exdb/mnist/), however keep in mind that
 the neural networks implemented in Neural Redis are not optimized for
 complex computer visions tasks like convolutional networks (it will
 score 2.3%, very far from the state of art!), nor Neural Redis implements
