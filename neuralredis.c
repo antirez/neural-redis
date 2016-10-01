@@ -990,10 +990,12 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithSimpleString(ctx,"test-error");
     RedisModule_ReplyWithDouble(ctx,nr->test_error);
 
-    RedisModule_ReplyWithSimpleString(ctx,"classification-errors-perc");
-    {
-        snprintf(buf,sizeof(buf),"%.02f",(double)nr->test_class_error);
-        RedisModule_ReplyWithSimpleString(ctx,buf);
+    if (nr->flags & NR_FLAG_CLASSIFIER) {
+        RedisModule_ReplyWithSimpleString(ctx,"classification-errors-perc");
+        {
+            snprintf(buf,sizeof(buf),"%.02f",(double)nr->test_class_error);
+            RedisModule_ReplyWithSimpleString(ctx,buf);
+        }
     }
 
     RedisModule_ReplyWithSimpleString(ctx,"overfitting-detected");
