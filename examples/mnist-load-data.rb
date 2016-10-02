@@ -51,4 +51,4 @@ puts "Data loading finished. You can now train the NN with:\n"
 puts "  NR.TRAIN mnist MAXCYCLES 20 MAXTIME 0\n"
 puts "Note: 20 cycles are not enough with 100 hidden units, check the"
 puts "classifications error with NR.INFO and start new trainings to see"
-puts "how it changes over time".
+puts "how it changes over time."
