@@ -317,7 +317,7 @@ void *NRTrainingThreadMain(void *arg) {
     int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
     int backtrack = nr->flags & NR_FLAG_BACKTRACK;
 
-    uint64_t cycles;
+    uint64_t cycles = 0;
     long long start = NRMilliseconds();
     long long cycle_time;
     int overfitting_count = 0;
