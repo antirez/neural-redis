@@ -71,6 +71,7 @@ uint64_t NRNextId = 1; /* Next neural network unique ID. */
 #define NR_FLAG_TO_TRANSFER (NR_FLAG_OF_DETECTED)
 
 #define NR_MAX_LAYERS 32
+#define NR_RDB_ENC_VER 2
 
 typedef struct NRDataset {
     uint32_t len, maxlen;
@@ -1083,9 +1084,9 @@ void NRTypeRdbSaveDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint
     RedisModule_SaveUnsigned(rdb,ds->len);
     RedisModule_SaveUnsigned(rdb,ds->maxlen);
     for (int j = 0; j < ilen*ds->len; j++)
-        RedisModule_SaveDouble(rdb,ds->inputs[j]);
+        RedisModule_SaveFloat(rdb,ds->inputs[j]);
     for (int j = 0; j < olen*ds->len; j++)
-        RedisModule_SaveDouble(rdb,ds->outputs[j]);
+        RedisModule_SaveFloat(rdb,ds->outputs[j]);
 }
 
 /* Serialize a neural network object with its associated dataset
@@ -1108,27 +1109,27 @@ void NRTypeRdbSave(RedisModuleIO *rdb, void *value) {
     RedisModule_SaveUnsigned(rdb,nr->training_total_ms);
     RedisModule_SaveUnsigned(rdb,nr->training_max_cycles);
     RedisModule_SaveUnsigned(rdb,nr->training_max_ms);
-    RedisModule_SaveDouble(rdb,nr->dataset_error);
-    RedisModule_SaveDouble(rdb,nr->test_error);
-    RedisModule_SaveDouble(rdb,nr->test_class_error);
+    RedisModule_SaveFloat(rdb,nr->dataset_error);
+    RedisModule_SaveFloat(rdb,nr->test_error);
+    RedisModule_SaveFloat(rdb,nr->test_class_error);
 
     /* Save the neural network weights and biases. We start
      * at layer 1 since the first layer are just outputs. */
     for (int j = 1; j < LAYERS(nr->nn); j++) {
         int weights = WEIGHTS(nr->nn,j);
         for (int i = 0; i < weights; i++)
-            RedisModule_SaveDouble(rdb,nr->nn->layer[j].weight[i]);
+            RedisModule_SaveFloat(rdb,nr->nn->layer[j].weight[i]);
         for (int i = 0; i < weights; i++)
-            RedisModule_SaveDouble(rdb,nr->nn->layer[j].delta[i]);
+            RedisModule_SaveFloat(rdb,nr->nn->layer[j].delta[i]);
         for (int i = 0; i < weights; i++)
-            RedisModule_SaveDouble(rdb,nr->nn->layer[j].pgradient[i]);
+            RedisModule_SaveFloat(rdb,nr->nn->layer[j].pgradient[i]);
     }
 
     /* Save the normalization vectors. */
     uint32_t ilen = INPUT_UNITS(nr->nn);
     uint32_t olen = OUTPUT_UNITS(nr->nn);
-    for (int j = 0; j < ilen; j++) RedisModule_SaveDouble(rdb,nr->inorm[j]);
-    for (int j = 0; j < olen; j++) RedisModule_SaveDouble(rdb,nr->onorm[j]);
+    for (int j = 0; j < ilen; j++) RedisModule_SaveFloat(rdb,nr->inorm[j]);
+    for (int j = 0; j < olen; j++) RedisModule_SaveFloat(rdb,nr->onorm[j]);
 
     /* Save the dataset. */
     NRTypeRdbSaveDataset(rdb,&nr->dataset,ilen,olen);
@@ -1146,17 +1147,17 @@ void NRTypeRdbLoadDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint
     ds->outputs = RedisModule_Alloc(olen*ds->len*sizeof(float));
 
     for (int j = 0; j < ilen*ds->len; j++)
-        ds->inputs[j] = RedisModule_LoadDouble(rdb);
+        ds->inputs[j] = RedisModule_LoadFloat(rdb);
     for (int j = 0; j < olen*ds->len; j++)
-        ds->outputs[j] = RedisModule_LoadDouble(rdb);
+        ds->outputs[j] = RedisModule_LoadFloat(rdb);
 }
 
 /* Load a neural network and its associated dataset from RDB. */
 void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     /* As long as the module is not stable, we don't care about
      * loading old versions of the encoding. */
-    if (encver != 1) {
-        RedisModule_LogIOError(rdb,"warning","Sorry the Neural Redis module only supports RDB files written with the encoding version %d. This file was likely written by a previous version of the module that is now deprecated. Once the module will be stable we'll start supporting older versions of the encodings, in case we switch to newer encodings.", encver);
+    if (encver != 2) {
+        RedisModule_LogIOError(rdb,"warning","Sorry the Neural Redis module only supports RDB files written with the encoding version %d. This file has encoding version %d, and was likely written by a previous version of this module that is now deprecated. Once the module will be stable we'll start supporting older versions of the encodings, in case we switch to newer encodings.", NR_RDB_ENC_VER, encver);
         return NULL;
     }
 
@@ -1177,26 +1178,26 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     nr->training_total_ms = RedisModule_LoadUnsigned(rdb);
     nr->training_max_cycles = RedisModule_LoadUnsigned(rdb);
     nr->training_max_ms = RedisModule_LoadUnsigned(rdb);
-    nr->dataset_error = RedisModule_LoadDouble(rdb);
-    nr->test_error = RedisModule_LoadDouble(rdb);
-    nr->test_class_error = RedisModule_LoadDouble(rdb);
+    nr->dataset_error = RedisModule_LoadFloat(rdb);
+    nr->test_error = RedisModule_LoadFloat(rdb);
+    nr->test_class_error = RedisModule_LoadFloat(rdb);
 
     /* Load the neural network weights. */
     for (int j = 1; j < LAYERS(nr->nn); j++) {
         int weights = WEIGHTS(nr->nn,j);
         for (int i = 0; i < weights; i++)
-            nr->nn->layer[j].weight[i] = RedisModule_LoadDouble(rdb);
+            nr->nn->layer[j].weight[i] = RedisModule_LoadFloat(rdb);
         for (int i = 0; i < weights; i++)
-            nr->nn->layer[j].delta[i] = RedisModule_LoadDouble(rdb);
+            nr->nn->layer[j].delta[i] = RedisModule_LoadFloat(rdb);
         for (int i = 0; i < weights; i++)
-            nr->nn->layer[j].pgradient[i] = RedisModule_LoadDouble(rdb);
+            nr->nn->layer[j].pgradient[i] = RedisModule_LoadFloat(rdb);
     }
 
     /* Load the normalization vector. */
     uint32_t ilen = INPUT_UNITS(nr->nn);
     uint32_t olen = OUTPUT_UNITS(nr->nn);
-    for (int j = 0; j < ilen; j++) nr->inorm[j] = RedisModule_LoadDouble(rdb);
-    for (int j = 0; j < olen; j++) nr->onorm[j] = RedisModule_LoadDouble(rdb);
+    for (int j = 0; j < ilen; j++) nr->inorm[j] = RedisModule_LoadFloat(rdb);
+    for (int j = 0; j < olen; j++) nr->onorm[j] = RedisModule_LoadFloat(rdb);
 
     /* Load the dataset. */
     NRTypeRdbLoadDataset(rdb,&nr->dataset,ilen,olen);
@@ -1230,7 +1231,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"neuralredis",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    NRType = RedisModule_CreateDataType(ctx,"neural-NN",0,NRTypeRdbLoad,NRTypeRdbSave,NRTypeAofRewrite,NRTypeDigest,NRTypeFree);
+    NRType = RedisModule_CreateDataType(ctx,"neural-NN",NR_RDB_ENC_VER,NRTypeRdbLoad,NRTypeRdbSave,NRTypeAofRewrite,NRTypeDigest,NRTypeFree);
     if (NRType == NULL) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"nr.create",
