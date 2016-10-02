@@ -176,20 +176,34 @@ void NRTypeInsertData(NRTypeObject *o, float *inputs, float *outputs,
     if (target_ds == NR_INSERT_TRAIN) target = &o->dataset;
     else if (target_ds == NR_INSERT_TEST) target = &o->test;
 
+    /* If no target is specified, but there is only one possible
+     * target, select it ASAP. */
+    if (o->dataset.maxlen == 0) {
+        target = &o->test;
+    } else if (o->test.maxlen == 0) {
+        target = &o->dataset;
+    }
+
     /* Otherwise choose as the target to populate the one with less data
      * relatively to its size. */
-    if (target == NULL &&
-        (o->dataset.len != o->dataset.maxlen ||
-         o->test.len != o->dataset.len))
-    {
-        if (o->dataset.maxlen == 0) {
-            target = &o->test;
-        } else if (o->test.maxlen == 0) {
-            target = &o->dataset;
-        } else {
+    if (target == NULL) {
+        /* If one of the two datasets are still not full, pick
+         * based on fill percentage. Otherwise pick a random
+         * target relatively to their size. */
+        if (o->dataset.len != o->dataset.maxlen ||
+            o->test.len != o->dataset.len)
+        {
             float fill_a = (float)o->dataset.len / o->dataset.maxlen;
             float fill_b = (float)o->test.len / o->test.maxlen;
             target = (fill_a <= fill_b) ? &o->dataset : &o->test;
+        } else {
+            double r = rand()/RAND_MAX;
+            double sumlen = o->dataset.maxlen + o->test.maxlen;
+            if (r < (double)o->dataset.maxlen/sumlen) {
+                target = &o->dataset;
+            } else {
+                target = &o->test;
+            }
         }
     }
 
