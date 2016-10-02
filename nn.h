@@ -38,16 +38,16 @@
  * Only fully connected feed-forward networks are supported. */
 struct AnnLayer {
 	int units;
-	double *output;		/* output[i], output of i-th unit */
-	double *error;		/* error[i], output error of i-th unit*/
-	double *weight;		/* weight[(i*units)+j] */
+	float *output;		/* output[i], output of i-th unit */
+	float *error;		/* error[i], output error of i-th unit*/
+	float *weight;		/* weight[(i*units)+j] */
 				/* weight between unit i-th and next j-th */
-	double *gradient;	/* gradient[(i*units)+j] gradient */
-	double *sgradient;	/* gradient for the full training set */
+	float *gradient;	/* gradient[(i*units)+j] gradient */
+	float *sgradient;	/* gradient for the full training set */
 				/* only used for RPROP */
-	double *pgradient;	/* pastgradient[(i*units)+j] t-1 gradient */
+	float *pgradient;	/* pastgradient[(i*units)+j] t-1 gradient */
 				/* (t-1 sgradient for resilient BP) */
-	double *delta;		/* delta[(i*units)+j] cumulative update */
+	float *delta;		/* delta[(i*units)+j] cumulative update */
 				/* (per-weight delta for RPROP) */
 };
 
@@ -55,10 +55,10 @@ struct AnnLayer {
 struct Ann {
 	int flags;
 	int layers;
-	double rprop_nminus;
-	double rprop_nplus;
-	double rprop_maxupdate;
-	double rprop_minupdate;
+	float rprop_nminus;
+	float rprop_nplus;
+	float rprop_maxupdate;
+	float rprop_minupdate;
 	struct AnnLayer *layer;
 };
 
@@ -108,26 +108,26 @@ size_t AnnCountWeights(struct Ann *net);
 void AnnSimulate(struct Ann *net);
 void Ann2Tcl(struct Ann *net);
 void AnnPrint(struct Ann *net);
-double AnnGlobalError(struct Ann *net, double *desidered);
-void AnnSetInput(struct Ann *net, double *input);
-double AnnSimulateError(struct Ann *net, double *input, double *desidered);
-void AnnCalculateGradientsTrivial(struct Ann *net, double *desidered);
-void AnnCalculateGradients(struct Ann *net, double *desidered);
-void AnnSetDeltas(struct Ann *net, double val);
+float AnnGlobalError(struct Ann *net, float *desidered);
+void AnnSetInput(struct Ann *net, float *input);
+float AnnSimulateError(struct Ann *net, float *input, float *desidered);
+void AnnCalculateGradientsTrivial(struct Ann *net, float *desidered);
+void AnnCalculateGradients(struct Ann *net, float *desidered);
+void AnnSetDeltas(struct Ann *net, float val);
 void AnnResetDeltas(struct Ann *net);
 void AnnResetSgradient(struct Ann *net);
 void AnnSetRandomWeights(struct Ann *net);
-void AnnScaleWeights(struct Ann *net, double factor);
+void AnnScaleWeights(struct Ann *net, float factor);
 void AnnUpdateDeltasGD(struct Ann *net);
 void AnnUpdateDeltasGDM(struct Ann *net);
 void AnnUpdateSgradient(struct Ann *net);
 void AnnAdjustWeights(struct Ann *net);
-double AnnBatchGDEpoch(struct Ann *net, double *input, double *desidered, int setlen);
-double AnnBatchGDMEpoch(struct Ann *net, double *input, double *desidered, int setlen);
+float AnnBatchGDEpoch(struct Ann *net, float *input, float *desidered, int setlen);
+float AnnBatchGDMEpoch(struct Ann *net, float *input, float *desidered, int setlen);
 void AnnAdjustWeightsResilientBP(struct Ann *net);
-double AnnResilientBPEpoch(struct Ann *net, double *input, double *desidered, int setlen);
-double AnnTrain(struct Ann *net, double *input, double *desidered, double maxerr, int maxepochs, int setlen);
-double AnnTestError(struct Ann *net, double *input, double *desidered, int setlen);
-double AnnTestClassError(struct Ann *net, double *input, double *desidered, int setlen);
+float AnnResilientBPEpoch(struct Ann *net, float *input, float *desidered, int setlen);
+float AnnTrain(struct Ann *net, float *input, float *desidered, float maxerr, int maxepochs, int setlen);
+float AnnTestError(struct Ann *net, float *input, float *desidered, int setlen);
+float AnnTestClassError(struct Ann *net, float *input, float *desidered, int setlen);
 
 #endif /* __NN_H */

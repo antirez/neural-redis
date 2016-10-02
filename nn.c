@@ -38,11 +38,11 @@
 #include "nn.h"
 
 /* Node Transfer Function */
-double sigmoid(double x) {
-    return (double)1/(1+exp(-x));
+float sigmoid(float x) {
+    return (float)1/(1+exp(-x));
 }
 
-double relu(double x) {
+float relu(float x) {
     return (x > 0) ? x : 0;
 }
 
@@ -113,19 +113,19 @@ void AnnFree(struct Ann *net)
  * Return non-zero on out of memory. */
 int AnnInitLayer(struct Ann *net, int i, int units, int bias) {
     if (bias) units++; /* Take count of the bias unit */
-    net->layer[i].output = malloc(sizeof(double)*units);
-    net->layer[i].error = malloc(sizeof(double)*units);
+    net->layer[i].output = malloc(sizeof(float)*units);
+    net->layer[i].error = malloc(sizeof(float)*units);
     if (i) { /* not for output layer */
         net->layer[i].weight =
-            malloc(sizeof(double)*units*net->layer[i-1].units);
+            malloc(sizeof(float)*units*net->layer[i-1].units);
         net->layer[i].gradient =
-            malloc(sizeof(double)*units*net->layer[i-1].units);
+            malloc(sizeof(float)*units*net->layer[i-1].units);
         net->layer[i].pgradient =
-            malloc(sizeof(double)*units*net->layer[i-1].units);
+            malloc(sizeof(float)*units*net->layer[i-1].units);
         net->layer[i].delta =
-            malloc(sizeof(double)*units*net->layer[i-1].units);
+            malloc(sizeof(float)*units*net->layer[i-1].units);
         net->layer[i].sgradient =
-            malloc(sizeof(double)*units*net->layer[i-1].units);
+            malloc(sizeof(float)*units*net->layer[i-1].units);
     }
     net->layer[i].units = units;
     /* Check for out of memory conditions */
@@ -142,19 +142,19 @@ int AnnInitLayer(struct Ann *net, int i, int units, int bias) {
         return 1;
     }
     /* Set all the values to zero */
-    memset(net->layer[i].output, 0, sizeof(double)*units);
-    memset(net->layer[i].error, 0, sizeof(double)*units);
+    memset(net->layer[i].output, 0, sizeof(float)*units);
+    memset(net->layer[i].error, 0, sizeof(float)*units);
     if (i) {
         memset(net->layer[i].weight, 0,
-            sizeof(double)*units*net->layer[i-1].units);
+            sizeof(float)*units*net->layer[i-1].units);
         memset(net->layer[i].gradient, 0,
-            sizeof(double)*units*net->layer[i-1].units);
+            sizeof(float)*units*net->layer[i-1].units);
         memset(net->layer[i].pgradient, 0,
-            sizeof(double)*units*net->layer[i-1].units);
+            sizeof(float)*units*net->layer[i-1].units);
         memset(net->layer[i].delta, 0,
-            sizeof(double)*units*net->layer[i-1].units);
+            sizeof(float)*units*net->layer[i-1].units);
         memset(net->layer[i].sgradient, 0,
-            sizeof(double)*units*net->layer[i-1].units);
+            sizeof(float)*units*net->layer[i-1].units);
     }
     /* Set the bias unit output to 1 */
     if (bias) net->layer[i].output[units-1] = 1;
@@ -178,19 +178,19 @@ struct Ann *AnnClone(struct Ann* net) {
         lsrc = &net->layer[j];
         ldst = &copy->layer[j];
         if (lsrc->output)
-            memcpy(ldst->output, lsrc->output, sizeof(double)*units);
+            memcpy(ldst->output, lsrc->output, sizeof(float)*units);
         if (lsrc->error)
-            memcpy(ldst->error, lsrc->error, sizeof(double)*units);
+            memcpy(ldst->error, lsrc->error, sizeof(float)*units);
         if (lsrc->weight)
-            memcpy(ldst->weight, lsrc->weight, sizeof(double)*weights);
+            memcpy(ldst->weight, lsrc->weight, sizeof(float)*weights);
         if (lsrc->gradient)
-            memcpy(ldst->gradient, lsrc->gradient, sizeof(double)*weights);
+            memcpy(ldst->gradient, lsrc->gradient, sizeof(float)*weights);
         if (lsrc->pgradient)
-            memcpy(ldst->pgradient, lsrc->pgradient, sizeof(double)*weights);
+            memcpy(ldst->pgradient, lsrc->pgradient, sizeof(float)*weights);
         if (lsrc->delta)
-            memcpy(ldst->delta, lsrc->delta, sizeof(double)*weights);
+            memcpy(ldst->delta, lsrc->delta, sizeof(float)*weights);
         if (lsrc->sgradient)
-            memcpy(ldst->sgradient, lsrc->sgradient, sizeof(double)*weights);
+            memcpy(ldst->sgradient, lsrc->sgradient, sizeof(float)*weights);
     }
     copy->rprop_nminus = net->rprop_nminus;
     copy->rprop_nplus = net->rprop_nplus;
@@ -271,7 +271,7 @@ void AnnSimulate(struct Ann *net) {
         int units = net->layer[i].units;
         if (i > 1) nextunits--; /* dont output on bias units */
         for (j = 0; j < nextunits; j++) {
-            double A = 0, W;
+            float A = 0, W;
             for (k = 0; k < units; k++) {
                 W = WEIGHT(net, i, k, j);
                 A += W*OUTPUT(net, i, k);
@@ -296,7 +296,7 @@ void Ann2Tcl(struct Ann *net) {
         int units = net->layer[i].units;
         if (i > 1) nextunits--; /* dont output on bias units */
         for (j = 0; j < nextunits; j++) {
-            double W;
+            float W;
             if (i == 1) {
                 printf("    lset output %d ", j);
             } else {
@@ -409,8 +409,8 @@ void AnnPrint(struct Ann *net) {
 /* Calcuate the global error of the net. This is just the
  * Root Mean Square (RMS) error, which is half the sum of the squared
  * errors. */
-double AnnGlobalError(struct Ann *net, double *desired) {
-    double e, t;
+float AnnGlobalError(struct Ann *net, float *desired) {
+    float e, t;
     int i, outputs = OUTPUT_UNITS(net);
 
     e = 0;
@@ -422,7 +422,7 @@ double AnnGlobalError(struct Ann *net, double *desired) {
 }
 
 /* Set the network input */
-void AnnSetInput(struct Ann *net, double *input)
+void AnnSetInput(struct Ann *net, float *input)
 {
     int i, inputs = INPUT_UNITS(net);
 
@@ -430,7 +430,7 @@ void AnnSetInput(struct Ann *net, double *input)
 }
 
 /* Simulate the net, and return the global error */
-double AnnSimulateError(struct Ann *net, double *input, double *desired) {
+float AnnSimulateError(struct Ann *net, float *input, float *desired) {
     AnnSetInput(net, input);
     AnnSimulate(net);
     return AnnGlobalError(net, desired);
@@ -444,14 +444,14 @@ double AnnSimulateError(struct Ann *net, double *input, double *desired) {
  * points (E1, with the real weight, and E2 with the weight W = W + 0.1),
  * than the approximation of the gradient is G = (E2-E1)/0.1. */
 #define GTRIVIAL_DELTA 0.001
-void AnnCalculateGradientsTrivial(struct Ann *net, double *desired) {
+void AnnCalculateGradientsTrivial(struct Ann *net, float *desired) {
     int j, i, layers = LAYERS(net);
 
     for (j = 1; j < layers; j++) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
         for (i = 0; i < weights; i++) {
-            double t, e1, e2;
+            float t, e1, e2;
 
             /* Calculate the value of the error function
              * in this point. */
@@ -471,7 +471,7 @@ void AnnCalculateGradientsTrivial(struct Ann *net, double *desired) {
 }
 
 /* Calculate gradients using the back propagation algorithm */
-void AnnCalculateGradients(struct Ann *net, double *desired) {
+void AnnCalculateGradients(struct Ann *net, float *desired) {
     int j, layers = LAYERS(net)-1;
 
     /* First we need to calculate the error for every output
@@ -493,7 +493,7 @@ void AnnCalculateGradients(struct Ann *net, double *desired) {
         for (i = 0; i < prev_layer->units; i++) prev_layer->error[i] = 0;
         /* For every node in this layer ... */
         for (i = 0; i < units; i++) {
-            double delta, e, o;
+            float delta, e, o;
             int k;
 
             /* Compute (d-o)*o*(1-o) */
@@ -517,7 +517,7 @@ void AnnCalculateGradients(struct Ann *net, double *desired) {
 }
 
 /* Set the delta values of the net to a given value */
-void AnnSetDeltas(struct Ann *net, double val) {
+void AnnSetDeltas(struct Ann *net, float val) {
     int j, layers = LAYERS(net);
 
     for (j = 1; j < layers; j++) {
@@ -536,7 +536,7 @@ void AnnResetSgradient(struct Ann *net) {
     for (j = 1; j < layers; j++) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
-        memset(net->layer[j].sgradient, 0, sizeof(double)*weights);
+        memset(net->layer[j].sgradient, 0, sizeof(float)*weights);
     }
 }
 
@@ -554,7 +554,7 @@ void AnnSetRandomWeights(struct Ann *net) {
 }
 
 /* Scale the net weights of the given factor */
-void AnnScaleWeights(struct Ann *net, double factor) {
+void AnnScaleWeights(struct Ann *net, float factor) {
     int j, layers = LAYERS(net);
 
     for (j = 1; j < layers; j++) {
@@ -582,7 +582,7 @@ void AnnUpdateSgradient(struct Ann *net) {
 }
 
 /* Helper function for RPROP, returns -1 if n < 0, +1 if n > 0, 0 if n == 0 */
-double sign(double n) {
+float sign(float n) {
     if (n > 0) return +1;
     if (n < 0) return -1;
     return 0;
@@ -600,24 +600,24 @@ void AnnAdjustWeightsResilientBP(struct Ann *net) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1) - (j-1>0);
         for (i = 0; i < weights; i++) {
-            double t = net->layer[j].pgradient[i] *
+            float t = net->layer[j].pgradient[i] *
                        net->layer[j].sgradient[i];
-            double delta = net->layer[j].delta[i];
+            float delta = net->layer[j].delta[i];
 
             if (t > 0) {
                 delta = MIN(delta*RPROP_NPLUS(net),RPROP_MAXUPDATE(net));
-                double wdelta = -sign(net->layer[j].sgradient[i]) * delta;
+                float wdelta = -sign(net->layer[j].sgradient[i]) * delta;
                 net->layer[j].weight[i] += wdelta;
                 net->layer[j].delta[i] = delta;
                 net->layer[j].pgradient[i] = net->layer[j].sgradient[i];
             } else if (t < 0) {
-                double past_wdelta = -sign(net->layer[j].pgradient[i]) * delta;
+                float past_wdelta = -sign(net->layer[j].pgradient[i]) * delta;
                 delta = MAX(delta*RPROP_NMINUS(net),RPROP_MINUPDATE(net));
                 net->layer[j].weight[i] -= past_wdelta;
                 net->layer[j].delta[i] = delta;
                 net->layer[j].pgradient[i] = 0;
             } else { /* t == 0 */
-                double wdelta = -sign(net->layer[j].sgradient[i]) * delta;
+                float wdelta = -sign(net->layer[j].sgradient[i]) * delta;
                 net->layer[j].weight[i] += wdelta;
                 net->layer[j].pgradient[i] = net->layer[j].sgradient[i];
             }
@@ -626,8 +626,8 @@ void AnnAdjustWeightsResilientBP(struct Ann *net) {
 }
 
 /* Resilient Backpropagation Epoch */
-double AnnResilientBPEpoch(struct Ann *net, double *input, double *desired, int setlen) {
-    double error = 0;
+float AnnResilientBPEpoch(struct Ann *net, float *input, float *desired, int setlen) {
+    float error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
     AnnResetSgradient(net);
@@ -644,8 +644,8 @@ double AnnResilientBPEpoch(struct Ann *net, double *input, double *desired, int 
 
 /* Simulate the entire test dataset with the neural network and returns the
  * average error of all the entries tested. */
-double AnnTestError(struct Ann *net, double *input, double *desired, int setlen) {
-    double error = 0;
+float AnnTestError(struct Ann *net, float *input, float *desired, int setlen) {
+    float error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
     for (j = 0; j < setlen; j++) {
@@ -659,13 +659,13 @@ double AnnTestError(struct Ann *net, double *input, double *desired, int setlen)
 /* Simulate the entire test dataset with the neural network and returns the
  * percentage (from 0 to 100) of errors considering the task a classification
  * error where the output set to 1 is the correct class. */
-double AnnTestClassError(struct Ann *net, double *input, double *desired, int setlen) {
+float AnnTestClassError(struct Ann *net, float *input, float *desired, int setlen) {
     int wrongclass = 0;
     int j, i, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
     for (j = 0; j < setlen; j++) {
         int classid, outid;
-        double max = 0;
+        float max = 0;
 
         AnnSetInput(net, input);
         AnnSimulate(net);
@@ -680,7 +680,7 @@ double AnnTestClassError(struct Ann *net, double *input, double *desired, int se
         max = OUTPUT_NODE(net,0);
         outid = 0;
         for (i = 1; i < outputs; i++) {
-            double o = OUTPUT_NODE(net,i);
+            float o = OUTPUT_NODE(net,i);
             if (o > max) {
                 outid = i;
                 max = o;
@@ -692,13 +692,13 @@ double AnnTestClassError(struct Ann *net, double *input, double *desired, int se
         input += inputs;
         desired += outputs;
     }
-    return (double)wrongclass*100/setlen;
+    return (float)wrongclass*100/setlen;
 }
 
 /* Train the net */
-double AnnTrain(struct Ann *net, double *input, double *desired, double maxerr, int maxepochs, int setlen) {
+float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs, int setlen) {
     int i = 0;
-    double e = maxerr+1;
+    float e = maxerr+1;
 
     while (i++ < maxepochs && e >= maxerr)
         e = AnnResilientBPEpoch(net, input, desired, setlen);

@@ -74,7 +74,7 @@ uint64_t NRNextId = 1; /* Next neural network unique ID. */
 
 typedef struct NRDataset {
     uint32_t len, maxlen;
-    double *inputs, *outputs;
+    float *inputs, *outputs;
 } NRDataset;
 
 typedef struct {
@@ -91,14 +91,14 @@ typedef struct {
     struct Ann *nn;     /* Neural network structure. */
     NRDataset dataset;  /* Training dataset. */
     NRDataset test;     /* Testing dataset. */
-    double dataset_error;   /* Average error in the training dataset. */
-    double test_error;      /* Average error in the test dataset. */
-    double test_class_error;    /* Percentage of wrong classifications in test
+    float dataset_error;   /* Average error in the training dataset. */
+    float test_error;      /* Average error in the test dataset. */
+    float test_class_error;    /* Percentage of wrong classifications in test
                                    dataset. Only applicable to nets flagged with
                                    NR_FLAG_CLASSIFIER. */
     /* For normalized (NR_FLAG_NORMALIZE) networks. */
-    double *inorm;          /* Inputs normalization factors. */
-    double *onorm;          /* Outputs normalization factors. */
+    float *inorm;          /* Inputs normalization factors. */
+    float *onorm;          /* Outputs normalization factors. */
 } NRTypeObject;
 
 struct {
@@ -147,8 +147,8 @@ NRTypeObject *createNRTypeObject(int flags, int *layers, int numlayers, int dset
     o->test.maxlen = test_len;
     int ilen = INPUT_UNITS(o->nn);
     int olen = OUTPUT_UNITS(o->nn);
-    o->inorm = RedisModule_Calloc(1,sizeof(double)*ilen);
-    o->onorm = RedisModule_Calloc(1,sizeof(double)*olen);
+    o->inorm = RedisModule_Calloc(1,sizeof(float)*ilen);
+    o->onorm = RedisModule_Calloc(1,sizeof(float)*olen);
     for (int j = 0; j < ilen; j++) o->inorm[j] = 1;
     for (int j = 0; j < olen; j++) o->onorm[j] = 1;
     return o;
@@ -164,7 +164,7 @@ NRTypeObject *createNRTypeObject(int flags, int *layers, int numlayers, int dset
 #define NR_INSERT_NO_TARGET 0   /* Auto select where to insert. */
 #define NR_INSERT_TRAIN 1       /* Insert in training dataset. */
 #define NR_INSERT_TEST 2        /* Insert in testing dataset. */
-void NRTypeInsertData(NRTypeObject *o, double *inputs, double *outputs,
+void NRTypeInsertData(NRTypeObject *o, float *inputs, float *outputs,
                       int target_ds) {
     NRDataset *target = NULL;
 
@@ -187,8 +187,8 @@ void NRTypeInsertData(NRTypeObject *o, double *inputs, double *outputs,
         } else if (o->test.maxlen == 0) {
             target = &o->dataset;
         } else {
-            double fill_a = (double)o->dataset.len / o->dataset.maxlen;
-            double fill_b = (double)o->test.len / o->test.maxlen;
+            float fill_a = (float)o->dataset.len / o->dataset.maxlen;
+            float fill_b = (float)o->test.len / o->test.maxlen;
             target = (fill_a <= fill_b) ? &o->dataset : &o->test;
         }
     }
@@ -204,9 +204,9 @@ void NRTypeInsertData(NRTypeObject *o, double *inputs, double *outputs,
         idx = target->len;
         target->len++;
         target->inputs = RedisModule_Realloc(target->inputs,
-            sizeof(double)*numin*target->len);
+            sizeof(float)*numin*target->len);
         target->outputs = RedisModule_Realloc(target->outputs,
-            sizeof(double)*numout*target->len);
+            sizeof(float)*numout*target->len);
     }
 
     /* Finally store the values at position. */
@@ -254,19 +254,19 @@ NRTypeObject *NRClone(NRTypeObject *o, int newid) {
 
     int ilen = INPUT_UNITS(o->nn);
     int olen = OUTPUT_UNITS(o->nn);
-    copy->dataset.inputs = RedisModule_Alloc(sizeof(double)*ilen*o->dataset.len);
-    copy->dataset.outputs = RedisModule_Alloc(sizeof(double)*olen*o->dataset.len);
-    copy->test.inputs = RedisModule_Alloc(sizeof(double)*ilen*o->test.len);
-    copy->test.outputs = RedisModule_Alloc(sizeof(double)*olen*o->test.len);
-    memcpy(copy->dataset.inputs,o->dataset.inputs,sizeof(double)*ilen*o->dataset.len);
-    memcpy(copy->dataset.outputs,o->dataset.outputs,sizeof(double)*olen*o->dataset.len);
-    memcpy(copy->test.inputs,o->test.inputs,sizeof(double)*ilen*o->test.len);
-    memcpy(copy->test.outputs,o->test.outputs,sizeof(double)*olen*o->test.len);
+    copy->dataset.inputs = RedisModule_Alloc(sizeof(float)*ilen*o->dataset.len);
+    copy->dataset.outputs = RedisModule_Alloc(sizeof(float)*olen*o->dataset.len);
+    copy->test.inputs = RedisModule_Alloc(sizeof(float)*ilen*o->test.len);
+    copy->test.outputs = RedisModule_Alloc(sizeof(float)*olen*o->test.len);
+    memcpy(copy->dataset.inputs,o->dataset.inputs,sizeof(float)*ilen*o->dataset.len);
+    memcpy(copy->dataset.outputs,o->dataset.outputs,sizeof(float)*olen*o->dataset.len);
+    memcpy(copy->test.inputs,o->test.inputs,sizeof(float)*ilen*o->test.len);
+    memcpy(copy->test.outputs,o->test.outputs,sizeof(float)*olen*o->test.len);
 
-    copy->inorm = RedisModule_Alloc(sizeof(double)*ilen);
-    copy->onorm = RedisModule_Alloc(sizeof(double)*olen);
-    memcpy(copy->inorm,o->inorm,sizeof(double)*ilen);
-    memcpy(copy->onorm,o->onorm,sizeof(double)*olen);
+    copy->inorm = RedisModule_Alloc(sizeof(float)*ilen);
+    copy->onorm = RedisModule_Alloc(sizeof(float)*olen);
+    memcpy(copy->inorm,o->inorm,sizeof(float)*ilen);
+    memcpy(copy->onorm,o->onorm,sizeof(float)*olen);
     return copy;
 }
 
@@ -297,8 +297,8 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
 
     int ilen = INPUT_UNITS(src->nn);
     int olen = OUTPUT_UNITS(src->nn);
-    memcpy(dst->inorm,src->inorm,sizeof(double)*ilen);
-    memcpy(dst->onorm,src->onorm,sizeof(double)*olen);
+    memcpy(dst->inorm,src->inorm,sizeof(float)*ilen);
+    memcpy(dst->onorm,src->onorm,sizeof(float)*olen);
 }
 
 /* Threaded training entry point.
@@ -310,10 +310,10 @@ void *NRTrainingThreadMain(void *arg) {
     NRPendingTraining *pt = arg;
     NRTypeObject *nr = pt->nr;
     int training_iterations = 1;
-    double train_error = 0;
-    double test_error = 0;
-    double past_train_error = 1.0/0.0;
-    double past_test_error = 1.0/0.0;
+    float train_error = 0;
+    float test_error = 0;
+    float past_train_error = 1.0/0.0;
+    float past_test_error = 1.0/0.0;
     int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
     int backtrack = nr->flags & NR_FLAG_BACKTRACK;
 
@@ -322,7 +322,7 @@ void *NRTrainingThreadMain(void *arg) {
     long long cycle_time;
     int overfitting_count = 0;
     int overfitting_limit = 5;
-    double best_test_error = 1.0/0.0;
+    float best_test_error = 1.0/0.0;
 
     nr->flags &= ~NR_FLAG_TO_TRANSFER;
 
@@ -339,10 +339,10 @@ void *NRTrainingThreadMain(void *arg) {
     if ((nr->flags & NR_FLAG_NORMALIZE) && nr->dataset.len) {
         int ilen = INPUT_UNITS(nr->nn);
         int olen = OUTPUT_UNITS(nr->nn);
-        double *imax = nr->inorm;
-        double *omax = nr->onorm;
-        double *inputs = nr->dataset.inputs;
-        double *outputs = nr->dataset.outputs;
+        float *imax = nr->inorm;
+        float *omax = nr->onorm;
+        float *inputs = nr->dataset.inputs;
+        float *outputs = nr->dataset.outputs;
         for (int i = 0; i < ilen; i++) imax[i] = 1;
         for (int i = 0; i < olen; i++) omax[i] = 1;
 
@@ -387,7 +387,7 @@ void *NRTrainingThreadMain(void *arg) {
     }
 
     struct Ann *saved = NULL;  /* Saved to recover on overfitting. */
-    double saved_error;        /* The error of the saved net. */
+    float saved_error;        /* The error of the saved net. */
 
     while(1) {
         long long cycle_start = NRMilliseconds();
@@ -726,7 +726,7 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
         double input;
         if (RedisModule_StringToDouble(argv[j+2],&input) != REDISMODULE_OK)
             return RedisModule_ReplyWithError(ctx,
-                "ERR invalid neural network input: must be a valid double "
+                "ERR invalid neural network input: must be a valid float "
                 "precision floating point number");
         if (nr->flags & NR_FLAG_NORMALIZE) input /= nr->inorm[j];
         INPUT_NODE(nr->nn,j) = input;
@@ -738,10 +738,10 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
      * is a classifier and the command invoked was NR.CLASS. */
     int olen = OUTPUT_UNITS(nr->nn);
     if (output_class) {
-        double max = OUTPUT_NODE(nr->nn,0);
+        float max = OUTPUT_NODE(nr->nn,0);
         int max_class = 0;
         for(int j = 1; j < olen; j++) {
-            double output = OUTPUT_NODE(nr->nn,j);
+            float output = OUTPUT_NODE(nr->nn,j);
             if (output > max) {
                 max = output;
                 max_class = j;
@@ -751,7 +751,7 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     } else {
         RedisModule_ReplyWithArray(ctx,olen);
         for(int j = 0; j < olen; j++) {
-            double output = OUTPUT_NODE(nr->nn,j);
+            float output = OUTPUT_NODE(nr->nn,j);
             if (!(nr->flags & NR_FLAG_CLASSIFIER) &&
                  (nr->flags & NR_FLAG_NORMALIZE))
             {
@@ -813,8 +813,8 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             "outputs: are you sure your training data is correct?");
     }
 
-    double *inputs = RedisModule_Alloc(sizeof(double)*ilen);
-    double *outputs = RedisModule_Alloc(sizeof(double)*olen);
+    float *inputs = RedisModule_Alloc(sizeof(float)*ilen);
+    float *outputs = RedisModule_Alloc(sizeof(float)*olen);
 
     for(int j = 2; j < argc; j++) {
         double val;
@@ -823,7 +823,7 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
             RedisModule_Free(inputs);
             RedisModule_Free(outputs);
             return RedisModule_ReplyWithError(ctx,
-                "ERR invalid neural network input: must be a valid double "
+                "ERR invalid neural network input: must be a valid float "
                 "precision floating point number");
         }
         if (j < ilen+2) {
@@ -838,7 +838,7 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
                         "ERR classifier network output must be an integer "
                         "in the range from 0 to outputs-1.");
                 }
-                memset(outputs,0,sizeof(double)*olen);
+                memset(outputs,0,sizeof(float)*olen);
                 outputs[classid] = 1;
             } else {
                 outputs[j-ilen-3] = val;
@@ -1014,7 +1014,7 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_ReplyWithSimpleString(ctx,"training-total-seconds");
     {
-        snprintf(buf,sizeof(buf),"%.02f",(double)nr->training_total_ms/1000);
+        snprintf(buf,sizeof(buf),"%.02f",(float)nr->training_total_ms/1000);
         RedisModule_ReplyWithSimpleString(ctx,buf);
     }
 
@@ -1027,7 +1027,7 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     if (nr->flags & NR_FLAG_CLASSIFIER) {
         RedisModule_ReplyWithSimpleString(ctx,"classification-errors-perc");
         {
-            snprintf(buf,sizeof(buf),"%.02f",(double)nr->test_class_error);
+            snprintf(buf,sizeof(buf),"%.02f",(float)nr->test_class_error);
             RedisModule_ReplyWithSimpleString(ctx,buf);
         }
     }
@@ -1128,8 +1128,8 @@ void NRTypeRdbLoadDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint
 
     if (ds->len == 0) return;
 
-    ds->inputs = RedisModule_Alloc(ilen*ds->len*sizeof(double));
-    ds->outputs = RedisModule_Alloc(olen*ds->len*sizeof(double));
+    ds->inputs = RedisModule_Alloc(ilen*ds->len*sizeof(float));
+    ds->outputs = RedisModule_Alloc(olen*ds->len*sizeof(float));
 
     for (int j = 0; j < ilen*ds->len; j++)
         ds->inputs[j] = RedisModule_LoadDouble(rdb);
