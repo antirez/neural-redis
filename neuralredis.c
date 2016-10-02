@@ -1104,6 +1104,10 @@ void NRTypeRdbSave(RedisModuleIO *rdb, void *value) {
         int weights = WEIGHTS(nr->nn,j);
         for (int i = 0; i < weights; i++)
             RedisModule_SaveDouble(rdb,nr->nn->layer[j].weight[i]);
+        for (int i = 0; i < weights; i++)
+            RedisModule_SaveDouble(rdb,nr->nn->layer[j].delta[i]);
+        for (int i = 0; i < weights; i++)
+            RedisModule_SaveDouble(rdb,nr->nn->layer[j].pgradient[i]);
     }
 
     /* Save the normalization vectors. */
@@ -1135,7 +1139,12 @@ void NRTypeRdbLoadDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint
 
 /* Load a neural network and its associated dataset from RDB. */
 void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
-    if (encver != 0) return NULL;
+    /* As long as the module is not stable, we don't care about
+     * loading old versions of the encoding. */
+    if (encver != 1) {
+        RedisModule_LogIOError(rdb,"warning","Sorry the Neural Redis module only supports RDB files written with the encoding version %d. This file was likely written by a previous version of the module that is now deprecated. Once the module will be stable we'll start supporting older versions of the encodings, in case we switch to newer encodings.", encver);
+        return NULL;
+    }
 
     /* Load the network layout. */
     uint64_t numlayers = RedisModule_LoadUnsigned(rdb);
@@ -1163,6 +1172,10 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
         int weights = WEIGHTS(nr->nn,j);
         for (int i = 0; i < weights; i++)
             nr->nn->layer[j].weight[i] = RedisModule_LoadDouble(rdb);
+        for (int i = 0; i < weights; i++)
+            nr->nn->layer[j].delta[i] = RedisModule_LoadDouble(rdb);
+        for (int i = 0; i < weights; i++)
+            nr->nn->layer[j].pgradient[i] = RedisModule_LoadDouble(rdb);
     }
 
     /* Load the normalization vector. */
