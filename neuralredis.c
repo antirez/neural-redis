@@ -987,7 +987,7 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
 
-    int fields = 14;
+    int fields = 15;
     if (nr->flags & NR_FLAG_CLASSIFIER) fields++;
     RedisModule_ReplyWithArray(ctx,fields*2);
 
@@ -1026,6 +1026,11 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     RedisModule_ReplyWithSimpleString(ctx,"training-total-steps");
     RedisModule_ReplyWithLongLong(ctx,nr->training_total_steps);
+
+    RedisModule_ReplyWithSimpleString(ctx,"training-total-cycles");
+    RedisModule_ReplyWithLongLong(ctx,
+            nr->dataset.len ?
+            (nr->training_total_steps / nr->dataset.len) : 0);
 
     RedisModule_ReplyWithSimpleString(ctx,"training-total-seconds");
     {
