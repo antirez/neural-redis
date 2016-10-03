@@ -402,10 +402,12 @@ void *NRTrainingThreadMain(void *arg) {
     }
 
     struct Ann *saved = NULL;  /* Saved to recover on overfitting. */
-    float saved_error;        /* The error of the saved net. */
+    float saved_error;          /* The test error of the saved NN. */
+    float saved_train_error;    /* The training dataset error of the saved NN */
 
     while(1) {
         long long cycle_start = NRMilliseconds();
+
         train_error = AnnTrain(nr->nn,
                                nr->dataset.inputs,
                                nr->dataset.outputs,
@@ -427,23 +429,6 @@ void *NRTrainingThreadMain(void *arg) {
             if (train_error < past_train_error &&
                 test_error > past_test_error)
             {
-                /* When back tracking is active, we can't save every single
-                 * network with a score better compared to the currently
-                 * saved one: we would burn a lot of cycles doing this.
-                 * Instead we only save a network which has a better score
-                 * compared to the previously saved when we see an overtraining
-                 * "hint", that is, the two datasets errors going in
-                 * opposite directions. */
-                if (backtrack) {
-                    if (saved == NULL || test_error < saved_error) {
-                        #ifdef NR_TRAINING_DEBUG
-                        printf("SAVED! %f < %f\n", test_error, saved_error);
-                        #endif
-                        saved_error = test_error;
-                        if (saved) AnnFree(saved);
-                        saved = AnnClone(nr->nn);
-                    }
-                }
                 overfitting_count++;
                 #ifdef NR_TRAINING_DEBUG
                 printf("+YCLE %lld: [%d] %f VS %f\n", (long long)cycles,
@@ -461,6 +446,20 @@ void *NRTrainingThreadMain(void *arg) {
                 overfitting_count--;
             }
 
+            /* Save all the networks with a score better than the currently
+             * saved network. This can be a bit costly, but is safe: one
+             * cycle of training more and overfitting can ruin it all. */
+            if (backtrack && (saved == NULL || test_error < saved_error)) {
+                #ifdef NR_TRAINING_DEBUG
+                printf("SAVED! %f < %f\n", test_error, saved_error);
+                #endif
+                saved_error = test_error;
+                saved_train_error = train_error;
+                if (saved) AnnFree(saved);
+                saved = AnnClone(nr->nn);
+            }
+
+            /* Best network found? Reset the overfitting hints counter. */
             if (test_error < best_test_error) {
                 overfitting_count = 0;
                 best_test_error = test_error;
@@ -470,7 +469,7 @@ void *NRTrainingThreadMain(void *arg) {
                 #endif
             }
 
-            /* Also stop if the loss is zero in both datasets. */
+           /* Also stop if the loss is zero in both datasets. */
             if (train_error < 0.000000000000001 &&
                 test_error  < 0.000000000000001) break;
         }
@@ -511,6 +510,8 @@ void *NRTrainingThreadMain(void *arg) {
             #endif
             AnnFree(nr->nn);
             nr->nn = saved;
+            test_error = saved_error;
+            train_error = saved_train_error;
         } else if (saved) {
             AnnFree(saved);
         }
