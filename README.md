@@ -787,6 +787,98 @@ circumferences there are points of two different classes).
 This example was not practical perhaps but shows well the power of the
 neural network in non linear tasks.
 
+Case study: Sentiment Analysis
+===
+
+Neural Redis is not the right tool for advanced NLP tasks, and for sentiment
+analysis, which is a very hard problem, there are RNNs and other, more complex
+tools, that can provide state of art results.
+
+However exactly for the same reason, SA is a very good example to show how
+to model problems, and that even the simplest of the intuitions can allow
+Neural Redis to handle problems in a decent way, even if far from the top
+specialized systems, after a training of 5 minutes or so.
+
+This case study is based on the source code inside the examples directory
+called `sentiment.rb`. It uses a very popular dataset used for sentiment
+analysis benchmarking, composed of 2000 movies reviews, 1000 which are
+positive, and 1000 negative.
+
+The reviews are like the following:
+
+    It must be some sort of warped critical nightmare: the best movie of
+    the year would be a summer vehicle, a jim carrey vehicle at that.
+    And so it is. The truman show is the most perplexing, crazed, paranoid
+    and rib-tickling morality play i've seen since i-don't-know-when.
+
+Normally we should try to do the best we can do in order to pre-process
+the data, but we are lazy dogs, so we don't do anything at all.
+However we still need to map our inputs and outputs to meaningful
+parameters. For the outputs, it's trivial, is a categorization task:
+*negative or positive*. But how do we map words to inputs?
+
+Normally you assign different words to different IDs, and then use such
+IDs as indexes. This creates two problems in our case:
+
+1. We need to select a vocabulary. Usually this is done in a pre-processing stage where we potentially examine a non-annotated large corpus of text. But remember that we are lazy?
+2. "very good" and "not good" have very different meanings, we can't stop to single words, otherwise our result is likely be disappointing.
+
+So I did the following. Let's say our network is composed of 3000 inputs,
+100 hidden units, and the 2 outputs for the classification.
+
+We split the initial inputs into two sites: 1500 of inputs just take the
+single words. The other 1500 inputs, we use for combinations of two words.
+What I did was to just use hashing to index the text to the input
+units:
+
+    INDEX_1 = HASH(word) % 1500
+    INDEX_2 = 1500 + (HASH(word + next_word) % 1500)
+
+This is a bit crazy, I'm curious to know if it's something that people tried
+in the past, since different words and different combinations of words
+will hash to the same, so we'll get a bit less precise results, however it
+is unlikely that words *polarized* in the opposite direction (positive
+VS negative) will hash to the same bucket, if we use enough inputs.
+
+So each single word and combination of words is a "vote" in the input
+unit. As we scan the sentences to give the votes, we also sum all the
+single votes we gave, so that we finally normalize to make sure all
+our inputs summed will give "1". This way the sentiment analysis does not
+depend by the length of the sentence.
+
+While this approach is very simple, it works and produces a NN in a few
+seconds that can score 80% in the 2000 movies dataset. I just spent
+a couple of hours on it, probably it's possible to do much better with
+a more advanced scheme. However the gist of this use case is: be creative
+when trying to map your data to the neural network.
+
+If you run `sentiment.rb` you'll see the network quickly converging
+and at the end, you'll be able to type sentences that the NN will
+classify as positive or negative:
+
+    nn_id=7 cycle=61 key=sentiment ... classerr=21.500000
+    nn_id=7 cycle=62 key=sentiment ... classerr=20.333334
+
+    Best net so far can predict sentiment polarity 78.17 of times
+
+    Imagine and type a film review sentence:
+
+    > WTF this movie was terrible
+    Negativity: 0.99966669082641602
+    Positivity: 0.00037576013710349798
+
+    > Good one
+    Negativity: 0.28475716710090637
+    Positivity: 0.73368257284164429
+
+    > This is a masterpiece
+    Negativity: 2.219095662781001e-08
+    Positivity: 0.99999994039535522
+
+Of course you'll find a number of sentences that the net will classify
+in the wrong way... However the longer sentence you type and more similar
+to an actual movie review, the more likely it can predict it correctly.
+
 API reference
 ===
 
