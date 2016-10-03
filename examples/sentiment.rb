@@ -102,8 +102,10 @@ end
 
 # Let users have some fun.
 def interactive(r)
+    puts "Imagine and type a film review sentence:"
     while true
-        puts "Imagine and type a film review sentence: "
+        print "\n> "
+        STDOUT.flush
         s = STDIN.gets
         inputs = sentences_to_inputs(s.split("."))
         outputs = r.send('nr.run',:sentiment,*inputs)
