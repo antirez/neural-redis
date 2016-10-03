@@ -8,8 +8,6 @@
 
 SentimentNeg = 0
 SentimentPos = 1
-NumInputs = 3000
-NumSections = 2
 
 require 'redis'
 require 'hiredis'
@@ -37,6 +35,10 @@ end
 #
 # This trivial approach works, getting around 80% with 3000 inputs and
 # 150 hidden layers.
+
+NumInputs = 3000
+NumSections = 2
+
 def sentences_to_inputs(sentences)
     iv = [0]*NumInputs
     sum = 0
@@ -117,7 +119,7 @@ end
 r = Redis.new(:driver => :hiredis)
 r.del(:sentiment)
 
-r.send('nr.create',:sentiment,:classifier,NumInputs,150,'->',2,:DATASET,1400,:TEST,600)
+r.send('nr.create',:sentiment,:classifier,NumInputs,50,'->',2,:DATASET,1400,:TEST,600)
 
 insert_data(r,"sentiment/txt_sentoken/neg/",SentimentNeg)
 insert_data(r,"sentiment/txt_sentoken/pos/",SentimentPos)
