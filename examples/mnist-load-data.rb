@@ -2,22 +2,6 @@
 
 require 'redis'
 
-def get_error(r)
-    a = r.send('nr.info',:iris)
-    Hash[*a]["classification-errors-perc"].to_f
-end
-
-def is_training(r)
-    a = r.send('nr.info',:iris)
-    Hash[*a]["training"].to_i == 1
-end
-
-def wait_end_of_training(r)
-    while is_training(r)
-        sleep 0.1
-    end
-end
-
 def insert_data(r,prefix,target,count)
     puts "Loading #{target} data..."
     image_filename = "mnist-data/#{prefix}-images-idx3-ubyte"
