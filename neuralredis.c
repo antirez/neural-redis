@@ -105,10 +105,14 @@ typedef struct {
 struct {
     RedisModuleString *key; /* Key name of the NN we are training.
                                Set to NULL for unused slots. */
-    int db_id;          /* DB ID where the key is. */
-    pthread_t tid;      /* Thread ID of the trainer. */
-    int in_progress;    /* 0 if training terminated. */
-    NRTypeObject *nr;   /* A copy of the NN we are training. */
+    int db_id;              /* DB ID where the key is. */
+    pthread_t tid;          /* Thread ID of the trainer. */
+    int in_progress;        /* 0 if training terminated. */
+    NRTypeObject *nr;       /* A copy of the NN we are training. */
+    float dataset_error;    /* Dataset error in the last cycle. */
+    float test_error;       /* Test error in the last cycle. */
+    float class_error;      /* Percentage of wrong classifications. */
+    int curcycle;           /* Current cycle. */
 } typedef NRPendingTraining;
 
 /* We take an array with NNs currently training in other threads.
@@ -327,6 +331,7 @@ void *NRTrainingThreadMain(void *arg) {
     int training_iterations = 1;
     float train_error = 0;
     float test_error = 0;
+    float class_error = 0;
     float past_train_error = 1.0/0.0;
     float past_test_error = 1.0/0.0;
     int auto_stop = nr->flags & NR_FLAG_AUTO_STOP;
@@ -404,6 +409,7 @@ void *NRTrainingThreadMain(void *arg) {
     struct Ann *saved = NULL;  /* Saved to recover on overfitting. */
     float saved_error;          /* The test error of the saved NN. */
     float saved_train_error;    /* The training dataset error of the saved NN */
+    float saved_class_error;    /* The % of classification errors of saved NN */
 
     while(1) {
         long long cycle_start = NRMilliseconds();
@@ -421,10 +427,10 @@ void *NRTrainingThreadMain(void *arg) {
          * once we see that the error in the traning set is decreasing
          * while the one in the test set is not. */
         if (auto_stop) {
-            test_error = AnnTestError(nr->nn,
-                                      nr->test.inputs,
-                                      nr->test.outputs,
-                                      nr->test.len);
+            AnnTestError(nr->nn,
+                         nr->test.inputs,
+                         nr->test.outputs,
+                         nr->test.len, &test_error, &class_error);
 
             if (train_error < past_train_error &&
                 test_error > past_test_error)
@@ -455,6 +461,7 @@ void *NRTrainingThreadMain(void *arg) {
                 #endif
                 saved_error = test_error;
                 saved_train_error = train_error;
+                saved_class_error = class_error;
                 if (saved) AnnFree(saved);
                 saved = AnnClone(nr->nn);
             }
@@ -490,15 +497,23 @@ void *NRTrainingThreadMain(void *arg) {
 
         past_train_error = train_error;
         past_test_error = test_error;
+
+        /* Update stats for NR.THREADS to show progresses. */
+        pthread_mutex_lock(&NRPendingTrainingMutex);
+        pt->dataset_error = train_error;
+        pt->test_error = test_error;
+        if (nr->flags & NR_FLAG_CLASSIFIER) pt->class_error = class_error;
+        pt->curcycle = cycles;
+        pthread_mutex_unlock(&NRPendingTrainingMutex);
     }
 
     /* If auto stop is disabled, we still need to compute the test error
      * in order to return this information to the main thread. */
     if (!auto_stop) {
-        test_error = AnnTestError(nr->nn,
-                                  nr->test.inputs,
-                                  nr->test.outputs,
-                                  nr->test.len);
+        AnnTestError(nr->nn,
+                     nr->test.inputs,
+                     nr->test.outputs,
+                     nr->test.len, &test_error, &class_error);
     }
 
     /* If both autostop and backtracking are enabled, we may have
@@ -512,20 +527,13 @@ void *NRTrainingThreadMain(void *arg) {
             nr->nn = saved;
             test_error = saved_error;
             train_error = saved_train_error;
+            class_error = saved_class_error;
         } else if (saved) {
             AnnFree(saved);
         }
     }
 
-    /* If this is a classification net, compute the percentage of
-     * wrong classifications. */
-    if (nr->flags & NR_FLAG_CLASSIFIER) {
-        nr->test_class_error = AnnTestClassError(nr->nn,
-                                  nr->test.inputs,
-                                  nr->test.outputs,
-                                  nr->test.len);
-    }
-
+    if (nr->flags & NR_FLAG_CLASSIFIER) nr->test_class_error = class_error;
     nr->dataset_error = train_error;
     nr->test_error = test_error;
     nr->training_total_ms += NRMilliseconds()-start;
@@ -564,6 +572,10 @@ int NRStartTraining(RedisModuleCtx *ctx, RedisModuleString *key, int dbid, NRTyp
     pt->db_id = dbid;
     pt->in_progress = 1;
     pt->nr = NRClone(nr,0);
+    pt->dataset_error = 0;
+    pt->test_error = 0;
+    pt->class_error = 0;
+    pt->curcycle = 0;
     if (pthread_create(&pt->tid,NULL,NRTrainingThreadMain,pt) != 0) {
         RedisModule_Log(ctx,"warning","Unable to create a new pthread in NRStartTraining()");
         RedisModule_FreeString(ctx,pt->key);
@@ -1072,16 +1084,77 @@ int NRThreads_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         char buf[1024];
         NRPendingTraining *pt = &NRTrainings[j];
         const char *keyname = RedisModule_StringPtrLen(pt->key,NULL);
-        snprintf(buf,sizeof(buf),"nn_id=%llu key=%s db=%d maxtime=%llu maxcycles=%llu",
+        snprintf(buf,sizeof(buf),"nn_id=%llu cycle=%d key=%s db=%d maxtime=%llu maxcycles=%llu trainerr=%f testerr=%f classerr=%f",
             (unsigned long long)pt->nr->id,
+            pt->curcycle,
             keyname, pt->db_id,
             (unsigned long long)pt->nr->training_max_ms,
-            (unsigned long long)pt->nr->training_max_cycles);
+            (unsigned long long)pt->nr->training_max_cycles,
+            pt->dataset_error,
+            pt->test_error,
+            pt->class_error);
         RedisModule_ReplyWithSimpleString(ctx,buf);
     }
     pthread_mutex_unlock(&NRPendingTrainingMutex);
     return REDISMODULE_OK;
 }
+
+/* NR.GETDATA key dataset rownum */
+int NRGetdata_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
+    NRCollectThreads(ctx);
+
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1], REDISMODULE_READ);
+    int type = RedisModule_KeyType(key);
+    if (RedisModule_ModuleTypeGetType(key) != NRType)
+        return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
+
+    NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
+
+    int ilen = INPUT_UNITS(nr->nn);
+    int olen = OUTPUT_UNITS(nr->nn);
+    NRDataset *target = NULL;
+    long long idx;
+
+    /* The last argument may specify the training target:
+     * testing or training dataset. */
+    if (!strcasecmp(RedisModule_StringPtrLen(argv[2],NULL),"train")) {
+        target = &nr->dataset;
+    } else if (!strcasecmp(RedisModule_StringPtrLen(argv[2],NULL),"test")){
+        target = &nr->test;
+    } else {
+        return RedisModule_ReplyWithError(ctx,
+            "ERR please specify as source either TRAIN or TEST");
+    }
+
+    /* Get the row index. */
+    if (RedisModule_StringToLongLong(argv[3],&idx) != REDISMODULE_OK ||
+        idx < 0)
+    {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid row specified");
+    } else if (idx >= target->maxlen) {
+        return RedisModule_ReplyWithNull(ctx);
+    }
+
+    RedisModule_ReplyWithArray(ctx,2);
+
+    /* Send inputs */
+    RedisModule_ReplyWithArray(ctx,ilen);
+    for(int j = 0; j < ilen; j++) {
+        double input = target->inputs[ilen*idx+j];
+        RedisModule_ReplyWithDouble(ctx,input);
+    }
+
+    /* Send outputs */
+    RedisModule_ReplyWithArray(ctx,olen);
+    for(int j = 0; j < olen; j++) {
+        double output = target->outputs[olen*idx+j];
+        RedisModule_ReplyWithDouble(ctx,output);
+    }
+    return REDISMODULE_OK;
+}
+
 
 /* =============================== Type methods ============================= */
 
@@ -1270,6 +1343,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"nr.threads",
         NRThreads_RedisCommand,"",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"nr.getdata",
+        NRGetdata_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

@@ -642,57 +642,49 @@ float AnnResilientBPEpoch(struct Ann *net, float *input, float *desired, int set
     return error / setlen;
 }
 
+/* This function, called after AnnSimulate(), will return 1 if there is
+ * an error in the detected class (compared to the desired output),
+ * othewise 0 is returned. */
+int AnnTestClassError(struct Ann *net, float *desired) {
+    int j, i, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
+    int classid, outid;
+    float max = 0;
+
+    /* Get the class ID from the test dataset output. */
+    classid = 0;
+    for (i = 0; i < outputs; i++)
+        if (desired[i] == 1) break;
+    classid = i;
+
+    /* Get the network classification. */
+    max = OUTPUT_NODE(net,0);
+    outid = 0;
+    for (i = 1; i < outputs; i++) {
+        float o = OUTPUT_NODE(net,i);
+        if (o > max) {
+            outid = i;
+            max = o;
+        }
+    }
+    return outid != classid;
+}
+
 /* Simulate the entire test dataset with the neural network and returns the
  * average error of all the entries tested. */
-float AnnTestError(struct Ann *net, float *input, float *desired, int setlen) {
+void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, float *avgerr, float *classerr) {
     float error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
+    int class_errors = 0;
 
     for (j = 0; j < setlen; j++) {
         error += AnnSimulateError(net, input, desired);
         input += inputs;
         desired += outputs;
+        if (classerr)
+            class_errors += AnnTestClassError(net, desired);
     }
-    return error/setlen;
-}
-
-/* Simulate the entire test dataset with the neural network and returns the
- * percentage (from 0 to 100) of errors considering the task a classification
- * error where the output set to 1 is the correct class. */
-float AnnTestClassError(struct Ann *net, float *input, float *desired, int setlen) {
-    int wrongclass = 0;
-    int j, i, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
-
-    for (j = 0; j < setlen; j++) {
-        int classid, outid;
-        float max = 0;
-
-        AnnSetInput(net, input);
-        AnnSimulate(net);
-
-        /* Get the class ID from the test dataset output. */
-        classid = 0;
-        for (i = 0; i < outputs; i++)
-            if (desired[i] == 1) break;
-        classid = i;
-
-        /* Get the network classification. */
-        max = OUTPUT_NODE(net,0);
-        outid = 0;
-        for (i = 1; i < outputs; i++) {
-            float o = OUTPUT_NODE(net,i);
-            if (o > max) {
-                outid = i;
-                max = o;
-            }
-        }
-
-        if (outid != classid) wrongclass++;
-
-        input += inputs;
-        desired += outputs;
-    }
-    return (float)wrongclass*100/setlen;
+    if (avgerr) *avgerr = error/setlen;
+    if (classerr) *classerr = (float)class_errors*100/setlen;
 }
 
 /* Train the net */

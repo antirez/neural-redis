@@ -127,7 +127,6 @@ float AnnBatchGDMEpoch(struct Ann *net, float *input, float *desidered, int setl
 void AnnAdjustWeightsResilientBP(struct Ann *net);
 float AnnResilientBPEpoch(struct Ann *net, float *input, float *desidered, int setlen);
 float AnnTrain(struct Ann *net, float *input, float *desidered, float maxerr, int maxepochs, int setlen);
-float AnnTestError(struct Ann *net, float *input, float *desidered, int setlen);
-float AnnTestClassError(struct Ann *net, float *input, float *desidered, int setlen);
+void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, float *avgerr, float *classerr);
 
 #endif /* __NN_H */
