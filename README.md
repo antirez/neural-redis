@@ -796,8 +796,8 @@ tools, that can provide state of art results.
 
 However exactly for the same reason, SA is a very good example to show how
 to model problems, and that even the simplest of the intuitions can allow
-Neural Redis to handle problems in a decent way, even if far from the top
-specialized systems, after a training of 5 minutes or so.
+Neural Redis to handle problems in a decent way (even if far from the top
+specialized systems) after a training of 5 minutes or so.
 
 This case study is based on the source code inside the examples directory
 called `sentiment.rb`. It uses a very popular dataset used for sentiment
@@ -826,9 +826,9 @@ IDs as indexes. This creates two problems in our case:
 So I did the following. Let's say our network is composed of 3000 inputs,
 100 hidden units, and the 2 outputs for the classification.
 
-We split the initial inputs into two sites: 1500 of inputs just take the
+We split the initial inputs into two sides: 1500 of inputs just take the
 single words. The other 1500 inputs, we use for combinations of two words.
-What I did was to just use hashing to index the text to the input
+What I did was to just use hashing to map the words in the text to the input
 units:
 
     INDEX_1 = HASH(word) % 1500
@@ -837,7 +837,7 @@ units:
 This is a bit crazy, I'm curious to know if it's something that people tried
 in the past, since different words and different combinations of words
 will hash to the same, so we'll get a bit less precise results, however it
-is unlikely that words *polarized* in the opposite direction (positive
+is unlikely that words *highly polarized* in the opposite direction (positive
 VS negative) will hash to the same bucket, if we use enough inputs.
 
 So each single word and combination of words is a "vote" in the input
@@ -846,8 +846,8 @@ single votes we gave, so that we finally normalize to make sure all
 our inputs summed will give "1". This way the sentiment analysis does not
 depend by the length of the sentence.
 
-While this approach is very simple, it works and produces a NN in a few
-seconds that can score 80% in the 2000 movies dataset. I just spent
+While this approach is very simple, it works and produces a NN in a matter
+of seconds that can score 80% in the 2000 movies dataset. I just spent
 a couple of hours on it, probably it's possible to do much better with
 a more advanced scheme. However the gist of this use case is: be creative
 when trying to map your data to the neural network.
