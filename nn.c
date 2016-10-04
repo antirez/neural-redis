@@ -655,21 +655,19 @@ void AnnUpdateDeltasGD(struct Ann *net) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
         for (i = 0; i < weights; i++)
-            net->layer[j].delta[i] +=
-                -(LEARN_RATE(net)*net->layer[j].gradient[i]);
+            net->layer[j].delta[i] += net->layer[j].gradient[i];
     }
 }
 
 /* Adjust net weights using the (already) calculated deltas. */
-void AnnAdjustWeights(struct Ann *net)
-{
+void AnnAdjustWeights(struct Ann *net, int setlen) {
     int j, i, layers = LAYERS(net);
 
     for (j = 1; j < layers; j++) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
         for (i = 0; i < weights; i++) {
-            net->layer[j].weight[i] += net->layer[j].delta[i];
+            net->layer[j].weight[i] -= LEARN_RATE(net)/setlen*net->layer[j].delta[i];
         }
     }
 }
@@ -679,15 +677,15 @@ float AnnGDEpoch(struct Ann *net, float *input, float *desidered, int setlen) {
     float error = 0;
     int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
 
-    AnnSetDeltas(net, 0);
     for (j = 0; j < setlen; j++) {
+        AnnSetDeltas(net, 0);
         error += AnnSimulateError(net, input, desidered);
         AnnCalculateGradients(net, desidered);
         AnnUpdateDeltasGD(net);
         input += inputs;
         desidered += outputs;
+        AnnAdjustWeights(net,setlen);
     }
-    AnnAdjustWeights(net);
     return error / setlen;
 }
 

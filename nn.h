@@ -126,7 +126,7 @@ void AnnScaleWeights(struct Ann *net, float factor);
 void AnnUpdateDeltasGD(struct Ann *net);
 void AnnUpdateDeltasGDM(struct Ann *net);
 void AnnUpdateSgradient(struct Ann *net);
-void AnnAdjustWeights(struct Ann *net);
+void AnnAdjustWeights(struct Ann *net, int setlen);
 float AnnBatchGDEpoch(struct Ann *net, float *input, float *desidered, int setlen);
 float AnnBatchGDMEpoch(struct Ann *net, float *input, float *desidered, int setlen);
 void AnnAdjustWeightsResilientBP(struct Ann *net);
