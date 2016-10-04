@@ -47,6 +47,8 @@
 
 #include "nn.h"
 
+#define UNUSED(V) ((void) V)
+
 static RedisModuleType *NRType;
 uint64_t NRNextId = 1; /* Next neural network unique ID. */
 
@@ -369,7 +371,7 @@ void *NRTrainingThreadMain(void *arg) {
         for (int i = 0; i < olen; i++) omax[i] = 1;
 
         /* Compute the max values vectors. */
-        for (int j = 0; j < nr->dataset.len; j++) {
+        for (uint32_t j = 0; j < nr->dataset.len; j++) {
             for (int i = 0; i < ilen; i++)
                 if (fabs(inputs[i]) > imax[i]) imax[i] = fabs(inputs[i]);
             for (int i = 0; i < olen; i++)
@@ -389,7 +391,7 @@ void *NRTrainingThreadMain(void *arg) {
          * be discarded anyway. */
         inputs = nr->dataset.inputs;
         outputs = nr->dataset.outputs;
-        for (int j = 0; j < nr->dataset.len; j++) {
+        for (uint32_t j = 0; j < nr->dataset.len; j++) {
             for (int i = 0; i < ilen; i++) inputs[i] /= nr->inorm[i];
             if (!(nr->flags & NR_FLAG_CLASSIFIER))
                 for (int i = 0; i < olen; i++) outputs[i] /= nr->onorm[i];
@@ -399,7 +401,7 @@ void *NRTrainingThreadMain(void *arg) {
 
         inputs = nr->test.inputs;
         outputs = nr->test.outputs;
-        for (int j = 0; j < nr->test.len; j++) {
+        for (uint32_t j = 0; j < nr->test.len; j++) {
             for (int i = 0; i < ilen; i++) inputs[i] /= nr->inorm[i];
             if (!(nr->flags & NR_FLAG_CLASSIFIER))
                 for (int i = 0; i < olen; i++) outputs[i] /= nr->onorm[i];
@@ -490,7 +492,7 @@ void *NRTrainingThreadMain(void *arg) {
         /* Cycles and milliseconds stop conditions. */
         if (nr->training_max_cycles && cycles == nr->training_max_cycles)
             break;
-        if (nr->training_max_ms && total_time > nr->training_max_ms)
+        if (nr->training_max_ms && total_time > (long long)nr->training_max_ms)
             break;
 
         /* If this is a long training, to do just a single training iteration
@@ -608,7 +610,6 @@ int NRCollectThreads(RedisModuleCtx *ctx) {
             if (orig_id != pt->db_id) RedisModule_SelectDb(ctx,pt->db_id);
             RedisModuleKey *key = RedisModule_OpenKey(ctx,pt->key,
                 REDISMODULE_READ|REDISMODULE_WRITE);
-            int type = RedisModule_KeyType(key);
             if (RedisModule_ModuleTypeGetType(key) == NRType) {
                 NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
                 if (nr->id == pt->nr->id) {
@@ -736,7 +737,6 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
     if (argc < 3) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1], REDISMODULE_READ);
-    int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
@@ -812,7 +812,6 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     if (argc < 3) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
         REDISMODULE_READ|REDISMODULE_WRITE);
-    int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
@@ -895,7 +894,6 @@ int NRTrain_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (argc < 2) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
         REDISMODULE_READ|REDISMODULE_WRITE);
-    int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
@@ -962,7 +960,6 @@ int NRReset_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (argc != 2) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
         REDISMODULE_READ|REDISMODULE_WRITE);
-    int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
@@ -997,7 +994,6 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     if (argc != 2) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1], REDISMODULE_READ);
-    int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
@@ -1078,6 +1074,7 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 int NRThreads_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_AutoMemory(ctx); /* Use automatic memory management. */
     NRCollectThreads(ctx);
+    UNUSED(argv);
 
     if (argc != 1) return RedisModule_WrongArity(ctx);
 
@@ -1109,7 +1106,6 @@ int NRGetdata_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     if (argc != 4) return RedisModule_WrongArity(ctx);
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1], REDISMODULE_READ);
-    int type = RedisModule_KeyType(key);
     if (RedisModule_ModuleTypeGetType(key) != NRType)
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
@@ -1165,9 +1161,9 @@ int NRGetdata_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 void NRTypeRdbSaveDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint32_t olen) {
     RedisModule_SaveUnsigned(rdb,ds->len);
     RedisModule_SaveUnsigned(rdb,ds->maxlen);
-    for (int j = 0; j < ilen*ds->len; j++)
+    for (uint32_t j = 0; j < ilen*ds->len; j++)
         RedisModule_SaveFloat(rdb,ds->inputs[j]);
-    for (int j = 0; j < olen*ds->len; j++)
+    for (uint32_t j = 0; j < olen*ds->len; j++)
         RedisModule_SaveFloat(rdb,ds->outputs[j]);
 }
 
@@ -1210,8 +1206,8 @@ void NRTypeRdbSave(RedisModuleIO *rdb, void *value) {
     /* Save the normalization vectors. */
     uint32_t ilen = INPUT_UNITS(nr->nn);
     uint32_t olen = OUTPUT_UNITS(nr->nn);
-    for (int j = 0; j < ilen; j++) RedisModule_SaveFloat(rdb,nr->inorm[j]);
-    for (int j = 0; j < olen; j++) RedisModule_SaveFloat(rdb,nr->onorm[j]);
+    for (uint32_t j = 0; j < ilen; j++) RedisModule_SaveFloat(rdb,nr->inorm[j]);
+    for (uint32_t j = 0; j < olen; j++) RedisModule_SaveFloat(rdb,nr->onorm[j]);
 
     /* Save the dataset. */
     NRTypeRdbSaveDataset(rdb,&nr->dataset,ilen,olen);
@@ -1228,9 +1224,9 @@ void NRTypeRdbLoadDataset(RedisModuleIO *rdb, NRDataset *ds, uint32_t ilen, uint
     ds->inputs = RedisModule_Alloc(ilen*ds->len*sizeof(float));
     ds->outputs = RedisModule_Alloc(olen*ds->len*sizeof(float));
 
-    for (int j = 0; j < ilen*ds->len; j++)
+    for (uint32_t j = 0; j < ilen*ds->len; j++)
         ds->inputs[j] = RedisModule_LoadFloat(rdb);
-    for (int j = 0; j < olen*ds->len; j++)
+    for (uint32_t j = 0; j < olen*ds->len; j++)
         ds->outputs[j] = RedisModule_LoadFloat(rdb);
 }
 
@@ -1246,7 +1242,7 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     /* Load the network layout. */
     uint64_t numlayers = RedisModule_LoadUnsigned(rdb);
     int *layers = RedisModule_Alloc(sizeof(int)*numlayers);
-    for (int j = 0; j < numlayers; j++)
+    for (uint32_t j = 0; j < numlayers; j++)
         layers[j] = RedisModule_LoadUnsigned(rdb);
 
     /* Load flags and create the object. */
@@ -1278,8 +1274,10 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     /* Load the normalization vector. */
     uint32_t ilen = INPUT_UNITS(nr->nn);
     uint32_t olen = OUTPUT_UNITS(nr->nn);
-    for (int j = 0; j < ilen; j++) nr->inorm[j] = RedisModule_LoadFloat(rdb);
-    for (int j = 0; j < olen; j++) nr->onorm[j] = RedisModule_LoadFloat(rdb);
+    for (uint32_t j = 0; j < ilen; j++)
+        nr->inorm[j] = RedisModule_LoadFloat(rdb);
+    for (uint32_t j = 0; j < olen; j++)
+        nr->onorm[j] = RedisModule_LoadFloat(rdb);
 
     /* Load the dataset. */
     NRTypeRdbLoadDataset(rdb,&nr->dataset,ilen,olen);
@@ -1289,6 +1287,9 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
 }
 
 void NRTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
+    UNUSED(aof);
+    UNUSED(key);
+    UNUSED(value);
 #if 0
     NRTypeObject *hto = value;
     struct NRTypeNode *node = hto->head;
@@ -1300,6 +1301,8 @@ void NRTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
 }
 
 void NRTypeDigest(RedisModuleDigest *digest, void *value) {
+    UNUSED(digest);
+    UNUSED(value);
     /* TODO: The DIGEST module interface is yet not implemented. */
 }
 
@@ -1310,6 +1313,9 @@ void NRTypeFree(void *value) {
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+
     if (RedisModule_Init(ctx,"neuralredis",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
