@@ -246,6 +246,8 @@ void NRTypeReleaseObject(NRTypeObject *o) {
     AnnFree(o->nn);
     NRDatasetFree(&o->dataset);
     NRDatasetFree(&o->test);
+    RedisModule_Free(o->inorm);
+    RedisModule_Free(o->onorm);
     RedisModule_Free(o);
 }
 

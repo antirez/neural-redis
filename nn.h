@@ -77,7 +77,7 @@ struct Ann {
 #define OUTPUT_NODE(net,i) OUTPUT(net,0,i)
 #define INPUT_NODE(net,i) OUTPUT(net,((net)->layers)-1,i)
 #define OUTPUT_UNITS(net) UNITS(net,0)
-#define INPUT_UNITS(net) (UNITS(net,((net)->layers)-1)-(LAYERS(net)>2))
+#define INPUT_UNITS(net) (UNITS(net,((net)->layers)-1)-1)
 #define RPROP_NMINUS(net) (net)->rprop_nminus
 #define RPROP_NPLUS(net) (net)->rprop_nplus
 #define RPROP_MAXUPDATE(net) (net)->rprop_maxupdate
