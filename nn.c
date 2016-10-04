@@ -170,8 +170,8 @@ struct Ann *AnnClone(struct Ann* net) {
     for (j = 0; j < LAYERS(net); j++) {
         struct AnnLayer *ldst, *lsrc;
         int units = UNITS(net,j);
-        int weights = WEIGHTS(net,j);
-        if (AnnInitLayer(copy, j, UNITS(net,j), 0)) {
+        int bias = j > 0;
+        if (AnnInitLayer(copy, j, units-bias, bias)) {
             AnnFree(copy);
             return NULL;
         }
@@ -181,16 +181,19 @@ struct Ann *AnnClone(struct Ann* net) {
             memcpy(ldst->output, lsrc->output, sizeof(float)*units);
         if (lsrc->error)
             memcpy(ldst->error, lsrc->error, sizeof(float)*units);
-        if (lsrc->weight)
-            memcpy(ldst->weight, lsrc->weight, sizeof(float)*weights);
-        if (lsrc->gradient)
-            memcpy(ldst->gradient, lsrc->gradient, sizeof(float)*weights);
-        if (lsrc->pgradient)
-            memcpy(ldst->pgradient, lsrc->pgradient, sizeof(float)*weights);
-        if (lsrc->delta)
-            memcpy(ldst->delta, lsrc->delta, sizeof(float)*weights);
-        if (lsrc->sgradient)
-            memcpy(ldst->sgradient, lsrc->sgradient, sizeof(float)*weights);
+        if (j) {
+            int weights = WEIGHTS(net,j);
+            if (lsrc->weight)
+                memcpy(ldst->weight, lsrc->weight, sizeof(float)*weights);
+            if (lsrc->gradient)
+                memcpy(ldst->gradient, lsrc->gradient, sizeof(float)*weights);
+            if (lsrc->pgradient)
+                memcpy(ldst->pgradient, lsrc->pgradient, sizeof(float)*weights);
+            if (lsrc->delta)
+                memcpy(ldst->delta, lsrc->delta, sizeof(float)*weights);
+            if (lsrc->sgradient)
+                memcpy(ldst->sgradient, lsrc->sgradient, sizeof(float)*weights);
+        }
     }
     copy->rprop_nminus = net->rprop_nminus;
     copy->rprop_nplus = net->rprop_nplus;
@@ -678,10 +681,10 @@ void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, flo
 
     for (j = 0; j < setlen; j++) {
         error += AnnSimulateError(net, input, desired);
-        input += inputs;
-        desired += outputs;
         if (classerr)
             class_errors += AnnTestClassError(net, desired);
+        input += inputs;
+        desired += outputs;
     }
     if (avgerr) *avgerr = error/setlen;
     if (classerr) *classerr = (float)class_errors*100/setlen;
