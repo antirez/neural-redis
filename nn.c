@@ -216,6 +216,7 @@ struct Ann *AnnCreateNet(int layers, int *units) {
     }
     AnnSetRandomWeights(net);
     AnnSetDeltas(net, RPROP_INITIAL_DELTA);
+    LEARN_RATE(net) = DEFAULT_LEARN_RATE;
     return net;
 }
 
@@ -642,6 +643,50 @@ float AnnResilientBPEpoch(struct Ann *net, float *input, float *desired, int set
     return error / setlen;
 }
 
+/* Update the deltas using the gradient descend algorithm.
+ * Gradients should be already computed with AnnCalculateGraidents(). */
+void AnnUpdateDeltasGD(struct Ann *net) {
+    int j, i, layers = LAYERS(net);
+
+    for (j = 1; j < layers; j++) {
+        int units = UNITS(net, j);
+        int weights = units * UNITS(net,j-1);
+        for (i = 0; i < weights; i++)
+                net->layer[j].delta[i] += -(LEARN_RATE(net)*net->layer[j].gradient[i]);
+    }
+}
+
+/* Adjust net weights using the (already) calculated deltas. */
+void AnnAdjustWeights(struct Ann *net)
+{
+    int j, i, layers = LAYERS(net);
+
+    for (j = 1; j < layers; j++) {
+        int units = UNITS(net, j);
+        int weights = units * UNITS(net,j-1);
+        for (i = 0; i < weights; i++) {
+            net->layer[j].weight[i] += net->layer[j].delta[i];
+        }
+    }
+}
+
+/* Gradient Descend training */
+float AnnGDEpoch(struct Ann *net, float *input, float *desidered, int setlen) {
+    float error = 0;
+    int j, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
+
+    AnnSetDeltas(net, 0);
+    for (j = 0; j < setlen; j++) {
+        error += AnnSimulateError(net, input, desidered);
+        AnnCalculateGradients(net, desidered);
+        AnnUpdateDeltasGD(net);
+        input += inputs;
+        desidered += outputs;
+    }
+    AnnAdjustWeights(net);
+    return error / setlen;
+}
+
 /* This function, called after AnnSimulate(), will return 1 if there is
  * an error in the detected class (compared to the desired output),
  * othewise 0 is returned. */
@@ -688,11 +733,16 @@ void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, flo
 }
 
 /* Train the net */
-float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs, int setlen) {
+float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs, int setlen, int algo) {
     int i = 0;
     float e = maxerr+1;
 
-    while (i++ < maxepochs && e >= maxerr)
-        e = AnnResilientBPEpoch(net, input, desired, setlen);
+    while (i++ < maxepochs && e >= maxerr) {
+        if (algo == NN_ALGO_BPROP) {
+            e = AnnResilientBPEpoch(net, input, desired, setlen);
+        } else if (algo == NN_ALGO_GD) {
+            e = AnnGDEpoch(net, input, desired, setlen);
+        }
+    }
     return e;
 }

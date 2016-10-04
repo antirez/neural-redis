@@ -59,6 +59,7 @@ struct Ann {
 	float rprop_nplus;
 	float rprop_maxupdate;
 	float rprop_minupdate;
+        float learn_rate; /* Used for GD training. */
 	struct AnnLayer *layer;
 };
 
@@ -81,6 +82,7 @@ struct Ann {
 #define RPROP_NPLUS(net) (net)->rprop_nplus
 #define RPROP_MAXUPDATE(net) (net)->rprop_maxupdate
 #define RPROP_MINUPDATE(net) (net)->rprop_minupdate
+#define LEARN_RATE(net) (net)->learn_rate
 
 /* Constants */
 #define DEFAULT_RPROP_NMINUS 0.5
@@ -88,6 +90,9 @@ struct Ann {
 #define DEFAULT_RPROP_MAXUPDATE 50
 #define DEFAULT_RPROP_MINUPDATE 0.000001
 #define RPROP_INITIAL_DELTA 0.1
+#define DEFAULT_LEARN_RATE 0.1
+#define NN_ALGO_BPROP 0
+#define NN_ALGO_GD 1
 
 /* Misc */
 #define MAX(a,b) (((a)>(b))?(a):(b))
@@ -126,7 +131,7 @@ float AnnBatchGDEpoch(struct Ann *net, float *input, float *desidered, int setle
 float AnnBatchGDMEpoch(struct Ann *net, float *input, float *desidered, int setlen);
 void AnnAdjustWeightsResilientBP(struct Ann *net);
 float AnnResilientBPEpoch(struct Ann *net, float *input, float *desidered, int setlen);
-float AnnTrain(struct Ann *net, float *input, float *desidered, float maxerr, int maxepochs, int setlen);
+float AnnTrain(struct Ann *net, float *input, float *desidered, float maxerr, int maxepochs, int setlen, int algo);
 void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, float *avgerr, float *classerr);
 
 #endif /* __NN_H */

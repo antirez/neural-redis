@@ -419,7 +419,8 @@ void *NRTrainingThreadMain(void *arg) {
                                nr->dataset.outputs,
                                0,
                                training_iterations,
-                               nr->dataset.len);
+                               nr->dataset.len,
+                               NN_ALGO_BPROP);
         cycle_time = NRMilliseconds() - cycle_start;
         nr->training_total_steps += nr->dataset.len*training_iterations;
 
