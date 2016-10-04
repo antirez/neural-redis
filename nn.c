@@ -497,24 +497,24 @@ void AnnCalculateGradients(struct Ann *net, float *desired) {
         for (i = 0; i < prev_layer->units; i++) prev_layer->error[i] = 0;
         /* For every node in this layer ... */
         for (i = 0; i < units; i++) {
-            float delta, e, o;
+            float error_signal, e, o;
             int k;
 
             /* Compute (d-o)*o*(1-o) */
             e = layer->error[i];
             o = layer->output[i];
-            delta = e*o*(1-o);
+            error_signal = e*o*(1-o);
 
             /* For every weight between this node and
              * the previous layer's nodes: */
 
             /* 1. Calculate the gradient */
             for (k = 0; k < prev_layer->units; k++) {
-                GRADIENT(net,j+1,k,i) = delta * OUTPUT(net,j+1,k);
+                GRADIENT(net,j+1,k,i) = error_signal * OUTPUT(net,j+1,k);
             }
             /* 2. And back-propagate the error to the previous layer */
             for (k = 0; k < prev_layer->units; k++) {
-                ERROR(net,j+1,k) += delta * WEIGHT(net,j+1,k,i);
+                ERROR(net,j+1,k) += error_signal * WEIGHT(net,j+1,k,i);
             }
         }
     }
@@ -655,7 +655,8 @@ void AnnUpdateDeltasGD(struct Ann *net) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
         for (i = 0; i < weights; i++)
-                net->layer[j].delta[i] += -(LEARN_RATE(net)*net->layer[j].gradient[i]);
+            net->layer[j].delta[i] +=
+                -(LEARN_RATE(net)*net->layer[j].gradient[i]);
     }
 }
 
@@ -694,7 +695,7 @@ float AnnGDEpoch(struct Ann *net, float *input, float *desidered, int setlen) {
  * an error in the detected class (compared to the desired output),
  * othewise 0 is returned. */
 int AnnTestClassError(struct Ann *net, float *desired) {
-    int j, i, inputs = INPUT_UNITS(net), outputs = OUTPUT_UNITS(net);
+    int i, outputs = OUTPUT_UNITS(net);
     int classid, outid;
     float max = 0;
 
