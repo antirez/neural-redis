@@ -17,6 +17,8 @@ all: neuralredis.so
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
+nn.c: nn.h
+
 neuralredis.xo: redismodule.h
 
 neuralredis.so: neuralredis.xo nn.xo
