@@ -1,6 +1,7 @@
 # MNIST handwritten digits recognition
 
 require 'redis'
+require 'hiredis'
 
 def insert_data(r,prefix,target,count)
     puts "Loading #{target} data..."
@@ -24,7 +25,7 @@ def insert_data(r,prefix,target,count)
     }
 end
 
-r = Redis.new
+r = Redis.new(:driver => :hiredis)
 r.del(:mnist)
 r.send('nr.create',:mnist,:classifier,28*28,100,'->',10,:DATASET,60000,:TEST,10000,:NORMALIZE)
 
