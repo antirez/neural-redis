@@ -32,8 +32,24 @@ r.send('nr.create',:mnist,:classifier,28*28,100,'->',10,:DATASET,60000,:TEST,100
 insert_data(r,"train",:train,60000)
 insert_data(r,"t10k",:test,10000)
 
-puts "Data loading finished. You can now train the NN with:\n"
-puts "  NR.TRAIN mnist MAXCYCLES 20 MAXTIME 0\n"
-puts "Note: 20 cycles are not enough with 100 hidden units, check the"
-puts "classifications error with NR.INFO and start new trainings to see"
-puts "how it changes over time."
+puts "Start training with AUTOSTOP BACKTRACK for max 5000 cycles"
+
+r.send('nr.train',:mnist,:maxtime,0,:maxcycles,500,:autostop,:backtrack)
+oldinfo = nil
+while true
+    info = r.send('nr.threads')
+    if (info != oldinfo)
+        puts info
+        oldinfo = info
+    end
+    sleep 0.1
+    if info.length == 0
+        puts ""
+        nn = r.send('nr.info',:mnist)
+        nn = Hash[*nn]
+        perc = 100.0 - nn['classification-errors-perc'].to_f
+        puts "Best net so far can predict MNIST digits #{perc} of times"
+        break
+    end
+end
+
