@@ -146,8 +146,8 @@ long long NRMilliseconds(void) {
 DNN_Network *DNN_CreateNetWithLayers(int *layers, int numlayers) {
     DNN_Network *net = DNN_SequentialNetwork();
     for (int j = 0; j < numlayers-1; j++) {
-        DNN_Layer *fc = DNN_FullyConnectedLayer(DNN_ACTIVATION_RELU,
-                        layers[j], layers[j+1],0 /* bias */,
+        DNN_Layer *fc = DNN_FullyConnectedLayer(DNN_ACTIVATION_SIGMOID,
+                        layers[j], layers[j+1], 1 /* bias */,
                         DNN_BACKEND_TINYDNN);
         DNN_SequentialAdd(net,fc);
     }
@@ -432,8 +432,8 @@ void *NRTrainingThreadMain(void *arg) {
     float saved_train_error;    /* The training dataset error of the saved NN */
     float saved_class_error;    /* The % of classification errors of saved NN */
 
-    int lossfunc = (nr->flags & NR_FLAG_CLASSIFIER) ?
-                    DNN_LOSS_CROSSENTROPY_MULTICLASS :
+    int lossfunc = /* (nr->flags & NR_FLAG_CLASSIFIER) ?
+                    DNN_LOSS_CROSSENTROPY_MULTICLASS : */
                     DNN_LOSS_MSE;
 
     DNN_Optimizer *optimizer = DNN_AdamOptimizer(0.001,0.9,0.999,0.9,0.999);
@@ -451,6 +451,7 @@ void *NRTrainingThreadMain(void *arg) {
         train_error = DNN_GetLoss(nr->nn, lossfunc,
                 nr->dataset.inputs, nr->dataset.outputs,
                 nr->dataset.len, nr->ilen, nr->olen);
+        printf("train_error: %f\n", train_error);
 
         cycle_time = NRMilliseconds() - cycle_start;
         nr->training_total_steps += nr->dataset.len*training_iterations;
