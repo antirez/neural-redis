@@ -29,7 +29,7 @@ r = Redis.new(:driver => :hiredis)
 r.del(:mnist)
 r.send('nr.create',:mnist,:classifier,28*28,100,'->',10,:DATASET,60000,:TEST,10000,:NORMALIZE)
 
-insert_data(r,"train",:train,60000)
+insert_data(r,"train",:train,5000)
 insert_data(r,"t10k",:test,10000)
 
 puts "Start training with AUTOSTOP BACKTRACK for max 5000 cycles"

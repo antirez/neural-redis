@@ -2,7 +2,7 @@ require 'redis'
 
 r = Redis.new
 r.del(:mynet2)
-r.send('nr.create',:mynet2,:classifier,2,20,'->',3,:DATASET,1000,:TEST,100)
+r.send('nr.create',:mynet2,:classifier,2,10,'->',3,:DATASET,1000,:TEST,100)
 
 def feed_dataset(r,count,mode)
     k = 0.0
