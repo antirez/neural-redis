@@ -143,11 +143,18 @@ long long NRMilliseconds(void) {
 }
 
 /* Create a fully connected network with the specified layout. */
-DNN_Network *DNN_CreateNetWithLayers(int *layers, int numlayers) {
+DNN_Network *DNN_CreateNetWithLayers(int flags, int *layers, int numlayers) {
     DNN_Network *net = DNN_SequentialNetwork();
     for (int j = 0; j < numlayers-1; j++) {
-        DNN_Layer *fc = DNN_FullyConnectedLayer(DNN_ACTIVATION_SIGMOID,
-                        layers[j], layers[j+1], 1 /* bias */,
+        int activation = DNN_ACTIVATION_SIGMOID;
+        int bias = 1;
+
+        if (flags & NR_FLAG_CLASSIFIER && j == numlayers-1)
+            activation = DNN_ACTIVATION_SOFTMAX;
+        if (j == numlayers-1) bias = 0;
+
+        DNN_Layer *fc = DNN_FullyConnectedLayer(activation,
+                        layers[j], layers[j+1], bias,
                         DNN_BACKEND_TINYDNN);
         DNN_SequentialAdd(net,fc);
     }
@@ -165,7 +172,7 @@ NRTypeObject *createNRTypeObject(int flags, int *layers, int numlayers, int dset
     o->flags = flags;
     o->ilen = layers[0];
     o->olen = layers[numlayers-1];
-    o->nn = DNN_CreateNetWithLayers(layers,numlayers);
+    o->nn = DNN_CreateNetWithLayers(flags,layers,numlayers);
     o->dataset.maxlen = dset_len;
     o->test.maxlen = test_len;
     int ilen = o->ilen;
@@ -432,8 +439,8 @@ void *NRTrainingThreadMain(void *arg) {
     float saved_train_error;    /* The training dataset error of the saved NN */
     float saved_class_error;    /* The % of classification errors of saved NN */
 
-    int lossfunc = /* (nr->flags & NR_FLAG_CLASSIFIER) ?
-                    DNN_LOSS_CROSSENTROPY_MULTICLASS : */
+    int lossfunc = (nr->flags & NR_FLAG_CLASSIFIER) ?
+                    DNN_LOSS_CROSSENTROPY_MULTICLASS :
                     DNN_LOSS_MSE;
 
     DNN_Optimizer *optimizer = DNN_AdamOptimizer(0.001,0.9,0.999,0.9,0.999);
