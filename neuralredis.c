@@ -467,7 +467,9 @@ void *NRTrainingThreadMain(void *arg) {
          * once we see that the error in the traning set is decreasing
          * while the one in the test set is not. */
         if (auto_stop) {
-            class_error = 0; /* FIXME. */
+            class_error = DNN_GetError2(nr->nn,
+                    nr->test.inputs, nr->test.outputs,
+                    nr->test.len, nr->ilen, nr->olen) * 100;
 
             test_error = DNN_GetLoss(nr->nn, lossfunc,
                     nr->test.inputs, nr->test.outputs,
@@ -554,7 +556,9 @@ void *NRTrainingThreadMain(void *arg) {
     /* If auto stop is disabled, we still need to compute the test error
      * in order to return this information to the main thread. */
     if (!auto_stop) {
-        class_error = 0; /* FIXME. */
+        class_error = DNN_GetError2(nr->nn,
+                nr->test.inputs, nr->test.outputs,
+                nr->test.len, nr->ilen, nr->olen) * 100;
 
         test_error = DNN_GetLoss(nr->nn, lossfunc,
                 nr->test.inputs, nr->test.outputs,

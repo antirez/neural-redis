@@ -938,6 +938,43 @@ float DNN_GetError(DNN_Network *net,
   return error;
 }
 
+/* Like GetError() but instead of getting labels it gets the raw
+ * outputs that are translated to labels according to the max
+ * value of the output. */
+float DNN_GetError2(DNN_Network *net,
+                   float *inputs,
+                   float *outputs,
+                   long n_samples,
+                   long sample_size,
+                   long output_size)
+{
+  std::vector<vec_t> dnn_inputs(n_samples);
+  std::vector<label_t> dnn_outputs(n_samples);
+
+  for (int n=0; n<n_samples; n++) {
+    dnn_inputs[n].assign(inputs+n*sample_size,
+                         inputs+(n+1)*sample_size);
+    int label = 0;
+    float label_max = outputs[0];
+    for (int i=1; i<output_size; i++) {
+        if (outputs[i] > label_max) {
+            label = i;
+            label_max = outputs[i];
+        }
+    }
+    dnn_outputs[n] = label;
+    outputs += output_size;
+  }
+
+  network<sequential> &dnn_net = *(network<sequential> *)net->ptr;
+
+  result res = dnn_net.test(dnn_inputs,dnn_outputs);
+
+  float error = 1.0 - 0.01 * res.accuracy();
+
+  return error;
+}
+
 float DNN_GetLoss(DNN_Network *net,
                   enum DNN_LossType losstype,
                   float *inputs,

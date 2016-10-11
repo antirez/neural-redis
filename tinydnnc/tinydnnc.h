@@ -278,6 +278,13 @@ extern "C" {
                      long n_samples,
                      long sample_size);
 
+  float DNN_GetError2(DNN_Network *net,
+                     float *inputs,
+                     float *outputs,
+                     long n_samples,
+                     long sample_size,
+                     long output_size);
+
   float DNN_GetLoss(DNN_Network *net,
                     enum DNN_LossType losstype,
                     float *inputs, // std::vector<vec_t>&, aka tensor_t&
