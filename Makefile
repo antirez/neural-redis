@@ -17,12 +17,13 @@ all: neuralredis.so
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
 
-nn.c: nn.h
+tinydnnc/build/tinydnnc.dylib:
+	(cd tinydnnc; mkdir -p build; cd build; cmake -DCMAKE_BUILD_TYPE:STRING=Release ../ && make)
 
-neuralredis.xo: redismodule.h
-
-neuralredis.so: neuralredis.xo nn.xo
-	$(LD) -o $@ $< nn.xo $(SHOBJ_LDFLAGS) $(LIBS) -lc
+neuralredis.xo: redismodule.h tinydnnc/build/tinydnnc.dylib
+neuralredis.so: neuralredis.xo
+	$(LD) -o $@ $< $(SHOBJ_LDFLAGS) $(LIBS) -lc -ltinydnnc -L ./tinydnnc/build/
 
 clean:
 	rm -rf *.xo *.so
+	(cd tinydnnc/build && make clean)

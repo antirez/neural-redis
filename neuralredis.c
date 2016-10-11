@@ -45,7 +45,7 @@
 #include <sys/time.h>
 #include <math.h>
 
-#include "nn.h"
+#include "tinydnnc/tinydnnc.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -91,7 +91,9 @@ typedef struct {
     uint64_t training_max_ms; /* Max time of a single training. */
     uint32_t flags;     /* NR_FLAG_... */
     uint32_t epochs;    /* Number of training epochs so far. */
-    struct Ann *nn;     /* Neural network structure. */
+    DNN_Network *nn;    /* Neural network object. */
+    uint32_t ilen;      /* Number of inputs. */
+    uint32_t olen;      /* Number of outputs. */
     NRDataset dataset;  /* Training dataset. */
     NRDataset test;     /* Testing dataset. */
     float dataset_error;   /* Average error in the training dataset. */
@@ -140,6 +142,18 @@ long long NRMilliseconds(void) {
     return ust/1000;
 }
 
+/* Create a fully connected network with the specified layout. */
+DNN_Network *DNN_CreateNetWithLayers(int *layers, int numlayers) {
+    DNN_Network *net = DNN_SequentialNetwork();
+    for (int j = 0; j < numlayers-1; j++) {
+        DNN_Layer *fc = DNN_FullyConnectedLayer(DNN_ACTIVATION_RELU,
+                        layers[j], layers[j+1],0 /* bias */,
+                        DNN_BACKEND_TINYDNN);
+        DNN_SequentialAdd(net,fc);
+    }
+    return net;
+}
+
 /* Create a network with the specified parameters. Note that the layers
  * must be specified from the output layer[0] to the input
  * layer[N]. Each element in the integer array 'layer' specify how many
@@ -149,11 +163,13 @@ NRTypeObject *createNRTypeObject(int flags, int *layers, int numlayers, int dset
     o = RedisModule_Calloc(1,sizeof(*o));
     o->id = NRNextId++;
     o->flags = flags;
-    o->nn = AnnCreateNet(numlayers,layers);
+    o->ilen = layers[0];
+    o->olen = layers[numlayers-1];
+    o->nn = DNN_CreateNetWithLayers(layers,numlayers);
     o->dataset.maxlen = dset_len;
     o->test.maxlen = test_len;
-    int ilen = INPUT_UNITS(o->nn);
-    int olen = OUTPUT_UNITS(o->nn);
+    int ilen = o->ilen;
+    int olen = o->olen;
     o->inorm = RedisModule_Calloc(1,sizeof(float)*ilen);
     o->onorm = RedisModule_Calloc(1,sizeof(float)*olen);
     for (int j = 0; j < ilen; j++) o->inorm[j] = 1;
@@ -216,8 +232,7 @@ void NRTypeInsertData(NRTypeObject *o, float *inputs, float *outputs,
 
     /* Append if there is room or substitute with a random entry. */
     size_t idx;
-    int j, numin = INPUT_UNITS(o->nn),
-           numout = OUTPUT_UNITS(o->nn);
+    int j, numin = o->ilen, numout = o->olen;
 
     if (target->maxlen == target->len) {
         idx = rand() % target->maxlen;
@@ -245,7 +260,9 @@ void NRDatasetFree(NRDataset *dset) {
 
 /* Free a whole NN object. */
 void NRTypeReleaseObject(NRTypeObject *o) {
-    AnnFree(o->nn);
+    DNN_NetworkDelete(o->nn);
+    /* FIXME: Delete the layers or modify tinydnnc in order to automatically
+     *        release the layers inside the network. */
     NRDatasetFree(&o->dataset);
     NRDatasetFree(&o->test);
     RedisModule_Free(o->inorm);
@@ -271,12 +288,12 @@ NRTypeObject *NRClone(NRTypeObject *o, int newid) {
     copy = RedisModule_Calloc(1,sizeof(*o));
     *copy = *o;
     if (newid) copy->id = NRNextId++;
-    copy->nn = AnnClone(o->nn);
+    copy->nn = DNN_NetworkClone(o->nn);
     copy->dataset = o->dataset;
     copy->test = o->test;
 
-    int ilen = INPUT_UNITS(o->nn);
-    int olen = OUTPUT_UNITS(o->nn);
+    int ilen = o->ilen;
+    int olen = o->olen;
     copy->dataset.inputs = RedisModule_Alloc(sizeof(float)*ilen*o->dataset.len);
     copy->dataset.outputs = RedisModule_Alloc(sizeof(float)*olen*o->dataset.len);
     copy->test.inputs = RedisModule_Alloc(sizeof(float)*ilen*o->test.len);
@@ -309,8 +326,8 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     /* It would be faster to memcpy just the weight array for each layer,
      * however this way we access the NN in a more abstract way, and should
      * be fast enough in most cases. We can always optimized it later. */
-    AnnFree(dst->nn);
-    dst->nn = AnnClone(src->nn);
+    DNN_NetworkDelete(dst->nn);
+    dst->nn = DNN_NetworkClone(src->nn);
     dst->training_total_steps = src->training_total_steps;
     dst->training_total_ms = src->training_total_ms;
     dst->dataset_error = src->dataset_error;
@@ -318,8 +335,8 @@ void NRTransferWeights(RedisModuleCtx *ctx, NRTypeObject *dst, NRTypeObject *src
     dst->test_class_error = src->test_class_error;
     dst->flags |= src->flags & NR_FLAG_TO_TRANSFER;
 
-    int ilen = INPUT_UNITS(src->nn);
-    int olen = OUTPUT_UNITS(src->nn);
+    int ilen = src->ilen;
+    int olen = src->olen;
     memcpy(dst->inorm,src->inorm,sizeof(float)*ilen);
     memcpy(dst->onorm,src->onorm,sizeof(float)*olen);
 }
@@ -361,8 +378,8 @@ void *NRTrainingThreadMain(void *arg) {
      * (NR_FLAG_CLASSIFIER), no output normalization will be done since
      * the data is already in 0/1 format. */
     if ((nr->flags & NR_FLAG_NORMALIZE) && nr->dataset.len) {
-        int ilen = INPUT_UNITS(nr->nn);
-        int olen = OUTPUT_UNITS(nr->nn);
+        int ilen = nr->ilen;
+        int olen = nr->olen;
         float *imax = nr->inorm;
         float *omax = nr->onorm;
         float *inputs = nr->dataset.inputs;
@@ -410,21 +427,31 @@ void *NRTrainingThreadMain(void *arg) {
         }
     }
 
-    struct Ann *saved = NULL;  /* Saved to recover on overfitting. */
+    DNN_Network *saved = NULL;  /* Saved to recover on overfitting. */
     float saved_error;          /* The test error of the saved NN. */
     float saved_train_error;    /* The training dataset error of the saved NN */
     float saved_class_error;    /* The % of classification errors of saved NN */
 
+    int lossfunc = (nr->flags & NR_FLAG_CLASSIFIER) ?
+                    DNN_LOSS_CROSSENTROPY_MULTICLASS :
+                    DNN_LOSS_MSE;
+
+    DNN_Optimizer *optimizer = DNN_AdamOptimizer(0.001,0.9,0.999,0.9,0.999);
     while(1) {
         long long cycle_start = NRMilliseconds();
+        int minibatch_len = 20;
 
-        train_error = AnnTrain(nr->nn,
-                               nr->dataset.inputs,
-                               nr->dataset.outputs,
-                               0,
-                               training_iterations,
-                               nr->dataset.len,
-                               NN_ALGO_BPROP);
+        DNN_Fit(nr->nn, optimizer, lossfunc,
+                nr->dataset.inputs, nr->dataset.outputs,
+                nr->dataset.len, nr->ilen, nr->olen,
+                minibatch_len, training_iterations,
+                NULL, NULL, NULL, 0 /* reset weights */,
+                4 /* number of threads */, NULL);
+
+        train_error = DNN_GetLoss(nr->nn, lossfunc,
+                nr->dataset.inputs, nr->dataset.outputs,
+                nr->dataset.len, nr->ilen, nr->olen);
+
         cycle_time = NRMilliseconds() - cycle_start;
         nr->training_total_steps += nr->dataset.len*training_iterations;
 
@@ -432,10 +459,11 @@ void *NRTrainingThreadMain(void *arg) {
          * once we see that the error in the traning set is decreasing
          * while the one in the test set is not. */
         if (auto_stop) {
-            AnnTestError(nr->nn,
-                         nr->test.inputs,
-                         nr->test.outputs,
-                         nr->test.len, &test_error, &class_error);
+            class_error = 0; /* FIXME. */
+
+            test_error = DNN_GetLoss(nr->nn, lossfunc,
+                    nr->test.inputs, nr->test.outputs,
+                    nr->test.len, nr->ilen, nr->olen);
 
             if (train_error < past_train_error &&
                 test_error > past_test_error)
@@ -467,8 +495,10 @@ void *NRTrainingThreadMain(void *arg) {
                 saved_error = test_error;
                 saved_train_error = train_error;
                 saved_class_error = class_error;
-                if (saved) AnnFree(saved);
-                saved = AnnClone(nr->nn);
+                if (saved) {
+                    DNN_NetworkDelete(saved);
+                }
+                saved = DNN_NetworkClone(nr->nn);
             }
 
             /* Best network found? Reset the overfitting hints counter. */
@@ -511,14 +541,16 @@ void *NRTrainingThreadMain(void *arg) {
         pt->curcycle = cycles;
         pthread_mutex_unlock(&NRPendingTrainingMutex);
     }
+    DNN_OptimizerDelete(optimizer);
 
     /* If auto stop is disabled, we still need to compute the test error
      * in order to return this information to the main thread. */
     if (!auto_stop) {
-        AnnTestError(nr->nn,
-                     nr->test.inputs,
-                     nr->test.outputs,
-                     nr->test.len, &test_error, &class_error);
+        class_error = 0; /* FIXME. */
+
+        test_error = DNN_GetLoss(nr->nn, lossfunc,
+                nr->test.inputs, nr->test.outputs,
+                nr->test.len, nr->ilen, nr->olen);
     }
 
     /* If both autostop and backtracking are enabled, we may have
@@ -528,13 +560,13 @@ void *NRTrainingThreadMain(void *arg) {
             #ifdef NR_TRAINING_DEBUG
             printf("BACKTRACK: Saved network used!\n");
             #endif
-            AnnFree(nr->nn);
+            DNN_NetworkDelete(nr->nn);
             nr->nn = saved;
             test_error = saved_error;
             train_error = saved_train_error;
             class_error = saved_class_error;
         } else if (saved) {
-            AnnFree(saved);
+            DNN_NetworkDelete(saved);
         }
     }
 
@@ -677,14 +709,6 @@ int NRCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
         if (stop) break;
     }
 
-    /* Our NN library takes the definition of layers in the opposite
-     * order, swap the layers array. */
-    for (int i = 0; i < num_layers/2; i++) {
-        int t = layers[i];
-        layers[i] = layers[num_layers-1-i];
-        layers[num_layers-1-i] = t;
-    }
-
     /* Parse the remaining options. */
     for (; j < argc; j++) {
         const char *o = RedisModule_StringPtrLen(argv[j], NULL);
@@ -725,7 +749,7 @@ int NRCreate_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
                               dset_size,test_size);
     RedisModule_ModuleTypeSetValue(key,NRType,nr);
 
-    RedisModule_ReplyWithLongLong(ctx,AnnCountWeights(nr->nn));
+    RedisModule_ReplyWithLongLong(ctx,1); /* FIXME: return num of params. */
     RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
@@ -747,42 +771,37 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
             "Use this command with a classifier network");
 
 
-    int ilen = INPUT_UNITS(nr->nn);
-    if (argc != ilen+2)
+    if (argc != (int)nr->ilen+2)
         return RedisModule_ReplyWithError(ctx,
             "ERR number of arguments does not "
             "match the number of inputs in the neural network");
 
-    for(int j = 0; j < ilen; j++) {
+    float *inputs = RedisModule_Alloc(sizeof(float)*nr->ilen);
+    float *outputs = RedisModule_Alloc(sizeof(float)*nr->olen);
+
+    for(int j = 0; j < (int)nr->ilen; j++) {
         double input;
-        if (RedisModule_StringToDouble(argv[j+2],&input) != REDISMODULE_OK)
+        if (RedisModule_StringToDouble(argv[j+2],&input) != REDISMODULE_OK) {
+            RedisModule_Free(inputs);
+            RedisModule_Free(outputs);
             return RedisModule_ReplyWithError(ctx,
                 "ERR invalid neural network input: must be a valid float "
                 "precision floating point number");
+        }
         if (nr->flags & NR_FLAG_NORMALIZE) input /= nr->inorm[j];
-        INPUT_NODE(nr->nn,j) = input;
+        inputs[j] = input;
     }
-
-    AnnSimulate(nr->nn);
 
     /* Output the raw net output or the class ID if the network
      * is a classifier and the command invoked was NR.CLASS. */
-    int olen = OUTPUT_UNITS(nr->nn);
     if (output_class) {
-        float max = OUTPUT_NODE(nr->nn,0);
-        int max_class = 0;
-        for(int j = 1; j < olen; j++) {
-            float output = OUTPUT_NODE(nr->nn,j);
-            if (output > max) {
-                max = output;
-                max_class = j;
-            }
-        }
-        RedisModule_ReplyWithLongLong(ctx, max_class);
+        int label = DNN_PredictLabel(nr->nn,inputs,nr->ilen);
+        RedisModule_ReplyWithLongLong(ctx, label);
     } else {
-        RedisModule_ReplyWithArray(ctx,olen);
-        for(int j = 0; j < olen; j++) {
-            float output = OUTPUT_NODE(nr->nn,j);
+        DNN_Predict(nr->nn,inputs,outputs,nr->ilen,nr->olen);
+        RedisModule_ReplyWithArray(ctx,nr->olen);
+        for(int j = 0; j < (int)nr->olen; j++) {
+            float output = outputs[j];
             if (!(nr->flags & NR_FLAG_CLASSIFIER) &&
                  (nr->flags & NR_FLAG_NORMALIZE))
             {
@@ -791,6 +810,8 @@ int NRGenericRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
             RedisModule_ReplyWithDouble(ctx, output);
         }
     }
+    RedisModule_Free(inputs);
+    RedisModule_Free(outputs);
     return REDISMODULE_OK;
 }
 
@@ -816,8 +837,8 @@ int NRObserve_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         return RedisModule_ReplyWithError(ctx,REDISMODULE_ERRORMSG_WRONGTYPE);
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
-    int ilen = INPUT_UNITS(nr->nn);
-    int olen = OUTPUT_UNITS(nr->nn);
+    int ilen = nr->ilen;
+    int olen = nr->olen;
     int oargs = (nr->flags & NR_FLAG_CLASSIFIER) ? 1 : olen;
     int target = NR_INSERT_NO_TARGET;
 
@@ -980,7 +1001,7 @@ int NRReset_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
     /* Set random weights in the neural network, which is
      * "untrain" the network. */
-    AnnSetRandomWeights(nr->nn);
+    /* FIXME: Set random weights in the neural network. */
 
     return RedisModule_ReplyWithSimpleString(ctx,"OK");
 }
@@ -1017,12 +1038,9 @@ int NRInfo_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     RedisModule_ReplyWithLongLong(ctx,!!(nr->flags & NR_FLAG_TRAINING));
 
     RedisModule_ReplyWithSimpleString(ctx,"layout");
-    RedisModule_ReplyWithArray(ctx,LAYERS(nr->nn));
-    for (int i = LAYERS(nr->nn)-1; i >= 0; i--) {
-        int units = UNITS(nr->nn,i);
-        if (i != 0) units--; /* Don't count the bias unit. */
-        RedisModule_ReplyWithLongLong(ctx,units);
-    }
+
+    /* FIXME: show layers. */
+    RedisModule_ReplyWithSimpleString(ctx,"not implemented!");
 
     RedisModule_ReplyWithSimpleString(ctx,"training-dataset-maxlen");
     RedisModule_ReplyWithLongLong(ctx,nr->dataset.maxlen);
@@ -1111,8 +1129,8 @@ int NRGetdata_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
 
     NRTypeObject *nr = RedisModule_ModuleTypeGetValue(key);
 
-    int ilen = INPUT_UNITS(nr->nn);
-    int olen = OUTPUT_UNITS(nr->nn);
+    int ilen = nr->ilen;
+    int olen = nr->olen;
     NRDataset *target = NULL;
     long long idx;
 
@@ -1173,12 +1191,8 @@ void NRTypeRdbSave(RedisModuleIO *rdb, void *value) {
     NRTypeObject *nr = value;
 
     /* Save the neural network layout. */
-    RedisModule_SaveUnsigned(rdb,LAYERS(nr->nn));
-    for (int j = 0; j < LAYERS(nr->nn); j++) {
-        int units = UNITS(nr->nn,j);
-        if (j != 0) units--; /* Don't count the bias unit. */
-        RedisModule_SaveUnsigned(rdb,units);
-    }
+
+    /* FIXME: Implement saving for tinydnn. */
 
     /* Save the object metadata. */
     RedisModule_SaveUnsigned(rdb,nr->flags & NR_FLAG_TO_PRESIST);
@@ -1193,19 +1207,12 @@ void NRTypeRdbSave(RedisModuleIO *rdb, void *value) {
 
     /* Save the neural network weights and biases. We start
      * at layer 1 since the first layer are just outputs. */
-    for (int j = 1; j < LAYERS(nr->nn); j++) {
-        int weights = WEIGHTS(nr->nn,j);
-        for (int i = 0; i < weights; i++)
-            RedisModule_SaveFloat(rdb,nr->nn->layer[j].weight[i]);
-        for (int i = 0; i < weights; i++)
-            RedisModule_SaveFloat(rdb,nr->nn->layer[j].delta[i]);
-        for (int i = 0; i < weights; i++)
-            RedisModule_SaveFloat(rdb,nr->nn->layer[j].pgradient[i]);
-    }
+
+    /* FIXME: Implement saving for tinydnn. */
 
     /* Save the normalization vectors. */
-    uint32_t ilen = INPUT_UNITS(nr->nn);
-    uint32_t olen = OUTPUT_UNITS(nr->nn);
+    uint32_t ilen = nr->ilen;
+    uint32_t olen = nr->olen;
     for (uint32_t j = 0; j < ilen; j++) RedisModule_SaveFloat(rdb,nr->inorm[j]);
     for (uint32_t j = 0; j < olen; j++) RedisModule_SaveFloat(rdb,nr->onorm[j]);
 
@@ -1240,15 +1247,12 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     }
 
     /* Load the network layout. */
-    uint64_t numlayers = RedisModule_LoadUnsigned(rdb);
-    int *layers = RedisModule_Alloc(sizeof(int)*numlayers);
-    for (uint32_t j = 0; j < numlayers; j++)
-        layers[j] = RedisModule_LoadUnsigned(rdb);
+
+    /* FIXME: Implement loading for tinydnn. */
 
     /* Load flags and create the object. */
     uint32_t flags = RedisModule_LoadUnsigned(rdb);
-    NRTypeObject *nr = createNRTypeObject(flags,layers,numlayers,0,0);
-    RedisModule_Free(layers);
+    NRTypeObject *nr = NULL; /* FIXME: Create the object. */
 
     /* Load and set the object metadata. */
     nr->id = RedisModule_LoadUnsigned(rdb);
@@ -1261,19 +1265,12 @@ void *NRTypeRdbLoad(RedisModuleIO *rdb, int encver) {
     nr->test_class_error = RedisModule_LoadFloat(rdb);
 
     /* Load the neural network weights. */
-    for (int j = 1; j < LAYERS(nr->nn); j++) {
-        int weights = WEIGHTS(nr->nn,j);
-        for (int i = 0; i < weights; i++)
-            nr->nn->layer[j].weight[i] = RedisModule_LoadFloat(rdb);
-        for (int i = 0; i < weights; i++)
-            nr->nn->layer[j].delta[i] = RedisModule_LoadFloat(rdb);
-        for (int i = 0; i < weights; i++)
-            nr->nn->layer[j].pgradient[i] = RedisModule_LoadFloat(rdb);
-    }
+
+    /* FIXME: Implement loading for tinydnn. */
 
     /* Load the normalization vector. */
-    uint32_t ilen = INPUT_UNITS(nr->nn);
-    uint32_t olen = OUTPUT_UNITS(nr->nn);
+    uint32_t ilen = nr->ilen;
+    uint32_t olen = nr->olen;
     for (uint32_t j = 0; j < ilen; j++)
         nr->inorm[j] = RedisModule_LoadFloat(rdb);
     for (uint32_t j = 0; j < olen; j++)
