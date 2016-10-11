@@ -838,7 +838,7 @@ void DNN_Fit(DNN_Network *net,
 {
   std::vector<vec_t> dnn_inputs(n_samples);
   std::vector<vec_t> dnn_outputs(n_samples);
-  std::vector<vec_t> dnn_cost(n_samples);
+  std::vector<vec_t> dnn_cost;
 
   if (cost) {
     dnn_cost.resize(n_samples);
