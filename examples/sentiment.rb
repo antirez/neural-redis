@@ -36,7 +36,7 @@ end
 # This trivial approach works, getting around 80% with 3000 inputs and
 # 150 hidden layers.
 
-NumInputs = 3000
+NumInputs = 3003
 NumSections = 2
 
 def sentences_to_inputs(sentences)
@@ -119,7 +119,7 @@ end
 r = Redis.new(:driver => :hiredis)
 r.del(:sentiment)
 
-r.send('nr.create',:sentiment,:classifier,NumInputs,50,'->',2,:DATASET,1400,:TEST,600)
+r.send('nr.create',:sentiment,:classifier,NumInputs,51,'->',2,:DATASET,1400,:TEST,600)
 
 insert_data(r,"sentiment/txt_sentoken/neg/",SentimentNeg)
 insert_data(r,"sentiment/txt_sentoken/pos/",SentimentPos)
@@ -131,13 +131,17 @@ puts "Start training with AUTOSTOP BACKTRACK for max 50 cycles"
 
 r.send('nr.train',:sentiment,:maxtime,0,:maxcycles,100,:autostop,:backtrack)
 oldinfo = nil
+
+start=Time.now
 while true
     info = r.send('nr.threads')
     if (info != oldinfo)
-        puts info
+        timeinfo = " milliseconds_per_cycle=#{(Time.now-start)*1000}"
+        start = Time.now
+        puts info[0] + timeinfo
         oldinfo = info
     end
-    sleep 0.1
+    sleep 0.01
     if info.length == 0
         puts ""
         nn = r.send('nr.info',:sentiment)
