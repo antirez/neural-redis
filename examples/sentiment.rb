@@ -135,7 +135,7 @@ oldinfo = nil
 start=Time.now
 while true
     info = r.send('nr.threads')
-    if (info.length && info != oldinfo)
+    if (info.length != 0 && info != oldinfo)
         timeinfo = " milliseconds_per_cycle=#{(Time.now-start)*1000}"
         start = Time.now
         puts info[0] + timeinfo
