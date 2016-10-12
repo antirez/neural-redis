@@ -10,6 +10,8 @@ else
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
 
+CFLAGS ?= -DUSE_SSE
+
 .SUFFIXES: .c .so .xo .o
 
 all: neuralredis.so

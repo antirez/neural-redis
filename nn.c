@@ -34,6 +34,10 @@
 #include <math.h>
 #include <time.h>
 #include <string.h>
+#ifdef USE_SSE
+#include <xmmintrin.h>
+#include <pmmintrin.h>
+#endif
 
 #include "nn.h"
 
@@ -267,6 +271,55 @@ struct Ann *AnnCreateNet2(int iunits, int ounits) {
 }
 
 /* Simulate the net one time. */
+#ifdef USE_SSE
+
+/* Return the sum of the 4 floats at 'v'. */
+float sse3_horizontal_sum(__m128 v) {
+    __m128 shuf = _mm_movehdup_ps(v);
+    __m128 sums = _mm_add_ps(v, shuf);
+    shuf        = _mm_movehl_ps(shuf, sums);
+    sums        = _mm_add_ss(sums, shuf);
+    return        _mm_cvtss_f32(sums);
+}
+
+void AnnSimulate(struct Ann *net) {
+    int i, j, k;
+
+    for (i = net->layers-1; i > 0; i--) {
+        int nextunits = net->layer[i-1].units;
+        int units = net->layer[i].units;
+        if (i > 1) nextunits--; /* dont output on bias units */
+        for (j = 0; j < nextunits; j++) {
+            float A = 0; /* Activation final value. */
+            float *w = net->layer[i].weight + j*units;
+            float *o = net->layer[i].output;
+
+            /* Use SSE if addresses are aligned. */
+            k = 0;
+            if (((long)w & 15) == 0 && ((long)o & 15) == 0) {
+                int psteps = (units-k)/4;
+                for (int x = 0; x < psteps; x++) {
+                    __m128 weights = _mm_load_ps(w);
+                    __m128 outputs = _mm_load_ps(o);
+                    __m128 prod = _mm_mul_ps(weights,outputs);
+                    A += sse3_horizontal_sum(prod);
+                    w += 4;
+                    o += 4;
+                }
+                k += 4*psteps;
+            }
+
+            /* Handle final piece shorter than 16 bytes. */
+            for (; k < units; k++) {
+                float W = *w++;
+                float O = *o++;
+                A += W*O;
+            }
+            OUTPUT(net, i-1, j) = sigmoid(A);
+        }
+    }
+}
+#else
 void AnnSimulate(struct Ann *net) {
     int i, j, k;
 
@@ -284,6 +337,7 @@ void AnnSimulate(struct Ann *net) {
         }
     }
 }
+#endif
 
 /* Create a Tcl procedure that simulates the neural network */
 void Ann2Tcl(struct Ann *net) {
@@ -580,6 +634,8 @@ void AnnUpdateSgradient(struct Ann *net) {
     for (j = 1; j < layers; j++) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
+        /* In theory this is a good target for SSE "ADDPS" instructions,
+         * however modern compilers figure out this automatically. */
         for (i = 0; i < weights; i++)
             net->layer[j].sgradient[i] += net->layer[j].gradient[i];
     }
