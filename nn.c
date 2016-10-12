@@ -34,9 +34,11 @@
 #include <math.h>
 #include <time.h>
 #include <string.h>
-#ifdef USE_SSE
+
+#ifdef USE_AVX
 #include <xmmintrin.h>
 #include <pmmintrin.h>
+#include <immintrin.h>
 #endif
 
 #include "nn.h"
@@ -271,15 +273,28 @@ struct Ann *AnnCreateNet2(int iunits, int ounits) {
 }
 
 /* Simulate the net one time. */
-#ifdef USE_SSE
-
-/* Return the sum of the 4 floats at 'v'. */
-float sse3_horizontal_sum(__m128 v) {
-    __m128 shuf = _mm_movehdup_ps(v);
-    __m128 sums = _mm_add_ps(v, shuf);
-    shuf        = _mm_movehl_ps(shuf, sums);
-    sums        = _mm_add_ss(sums, shuf);
-    return        _mm_cvtss_f32(sums);
+#ifdef USE_AVX
+/* Provided to stack overflow by user Marat Dukhan. */
+float avx_horizontal_sum(__m256 x) {
+    // hiQuad = ( x7, x6, x5, x4 )
+    const __m128 hiQuad = _mm256_extractf128_ps(x, 1);
+    // loQuad = ( x3, x2, x1, x0 )
+    const __m128 loQuad = _mm256_castps256_ps128(x);
+    // sumQuad = ( x3 + x7, x2 + x6, x1 + x5, x0 + x4 )
+    const __m128 sumQuad = _mm_add_ps(loQuad, hiQuad);
+    // loDual = ( -, -, x1 + x5, x0 + x4 )
+    const __m128 loDual = sumQuad;
+    // hiDual = ( -, -, x3 + x7, x2 + x6 )
+    const __m128 hiDual = _mm_movehl_ps(sumQuad, sumQuad);
+    // sumDual = ( -, -, x1 + x3 + x5 + x7, x0 + x2 + x4 + x6 )
+    const __m128 sumDual = _mm_add_ps(loDual, hiDual);
+    // lo = ( -, -, -, x0 + x2 + x4 + x6 )
+    const __m128 lo = sumDual;
+    // hi = ( -, -, -, x1 + x3 + x5 + x7 )
+    const __m128 hi = _mm_shuffle_ps(sumDual, sumDual, 0x1);
+    // sum = ( -, -, -, x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7 )
+    const __m128 sum = _mm_add_ss(lo, hi);
+    return _mm_cvtss_f32(sum);
 }
 
 void AnnSimulate(struct Ann *net) {
@@ -294,20 +309,17 @@ void AnnSimulate(struct Ann *net) {
             float *w = net->layer[i].weight + j*units;
             float *o = net->layer[i].output;
 
-            /* Use SSE if addresses are aligned. */
             k = 0;
-            if (((long)w & 15) == 0 && ((long)o & 15) == 0) {
-                int psteps = (units-k)/4;
-                for (int x = 0; x < psteps; x++) {
-                    __m128 weights = _mm_load_ps(w);
-                    __m128 outputs = _mm_load_ps(o);
-                    __m128 prod = _mm_mul_ps(weights,outputs);
-                    A += sse3_horizontal_sum(prod);
-                    w += 4;
-                    o += 4;
-                }
-                k += 4*psteps;
+            int psteps = (units-k)/8;
+            for (int x = 0; x < psteps; x++) {
+                __m256 weights = _mm256_loadu_ps(w);
+                __m256 outputs = _mm256_loadu_ps(o);
+                __m256 prod = _mm256_mul_ps(weights,outputs);
+                A += avx_horizontal_sum(prod);
+                w += 8;
+                o += 8;
             }
+            k += 8*psteps;
 
             /* Handle final piece shorter than 16 bytes. */
             for (; k < units; k++) {

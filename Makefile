@@ -10,14 +10,21 @@ else
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
 
-CFLAGS ?= -DUSE_SSE
-
 .SUFFIXES: .c .so .xo .o
 
-all: neuralredis.so
+all:
+	@echo ""
+	@echo "Make avx     -- Faster if you have modern CPU (>= Sandy Bridge)."
+	@echo "Make generic -- Works everywhere."
+	@echo ""
+
+generic: neuralredis.so
+
+avx:
+	make neuralredis.so CFLAGS=-DUSE_AVX AVX=-mavx
 
 .c.xo:
-	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
+	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) $(AVX) -fPIC -c $< -o $@
 
 nn.c: nn.h
 
