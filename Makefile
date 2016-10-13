@@ -14,14 +14,16 @@ endif
 
 all:
 	@echo ""
-	@echo "Make avx     -- Faster if you have modern CPU (>= Sandy Bridge)."
+	@echo "Make avx     -- Faster if you have a modern CPU."
 	@echo "Make generic -- Works everywhere."
+	@echo ""
+	@echo "The avx code uses AVX2, it requires Haswell (Q2 2013) or better."
 	@echo ""
 
 generic: neuralredis.so
 
 avx:
-	make neuralredis.so CFLAGS=-DUSE_AVX AVX=-mavx
+	make neuralredis.so CFLAGS=-DUSE_AVX AVX="-mavx2 -mfma"
 
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) $(AVX) -fPIC -c $< -o $@

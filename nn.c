@@ -313,7 +313,7 @@ void AnnSimulate(struct Ann *net) {
             k = 0;
 
 #ifdef USE_AVX
-            int psteps = (units-k)/8;
+            int psteps = units/8;
             for (int x = 0; x < psteps; x++) {
                 __m256 weights = _mm256_loadu_ps(w);
                 __m256 outputs = _mm256_loadu_ps(o);
@@ -540,32 +540,65 @@ void AnnCalculateGradients(struct Ann *net, float *desired) {
         struct AnnLayer *layer = &net->layer[j];
         struct AnnLayer *prev_layer = &net->layer[j+1];
         int i, units = layer->units;
+        int prevunits = prev_layer->units;
 
         /* Skip bias units, they have no connections with the previous
          * layers. */
         if (j > 1) units--;
         /* Reset the next layer errors array */
-        for (i = 0; i < prev_layer->units; i++) prev_layer->error[i] = 0;
+        for (i = 0; i < prevunits; i++) prev_layer->error[i] = 0;
         /* For every node in this layer ... */
         for (i = 0; i < units; i++) {
-            float error_signal, e, o;
+            float error_signal, ei, oi;
             int k;
 
             /* Compute (d-o)*o*(1-o) */
-            e = layer->error[i];
-            o = layer->output[i];
-            error_signal = e*o*(1-o);
+            ei = layer->error[i];
+            oi = layer->output[i];
+            error_signal = ei*oi*(1-oi);
 
             /* For every weight between this node and
              * the previous layer's nodes: */
+            float *g = prev_layer->gradient + i*prevunits;
+            float *w = prev_layer->weight + i*prevunits;
+            float *o = prev_layer->output;
+            float *e = prev_layer->error;
 
             /* 1. Calculate the gradient */
-            for (k = 0; k < prev_layer->units; k++) {
-                GRADIENT(net,j+1,k,i) = error_signal * OUTPUT(net,j+1,k);
+            k = 0;
+#ifdef USE_AVX
+            __m256 es = _mm256_set1_ps(error_signal);
+
+            int psteps = prevunits/8;
+            for (int x = 0; x < psteps; x++) {
+                __m256 outputs = _mm256_loadu_ps(o);
+                __m256 gradients = _mm256_mul_ps(es,outputs);
+                _mm256_storeu_ps(g,gradients);
+                o += 8;
+                g += 8;
             }
+            k += 8*psteps;
+#endif
+            for (; k < prevunits; k++) *g++ = error_signal*(*o++);
+
             /* 2. And back-propagate the error to the previous layer */
-            for (k = 0; k < prev_layer->units; k++) {
-                ERROR(net,j+1,k) += error_signal * WEIGHT(net,j+1,k,i);
+            k = 0;
+#ifdef USE_AVX
+            psteps = prevunits/8;
+            for (int x = 0; x < psteps; x++) {
+                __m256 weights = _mm256_loadu_ps(w);
+                __m256 errors = _mm256_loadu_ps(e);
+                __m256 prod = _mm256_fmadd_ps(es,weights,errors);
+                _mm256_storeu_ps(e,prod);
+                e += 8;
+                w += 8;
+            }
+            k += 8*psteps;
+#endif
+            for (; k < prevunits; k++) {
+                *e += error_signal * (*w);
+                e++;
+                w++;
             }
         }
     }
