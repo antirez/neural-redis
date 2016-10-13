@@ -296,6 +296,7 @@ float avx_horizontal_sum(__m256 x) {
     const __m128 sum = _mm_add_ss(lo, hi);
     return _mm_cvtss_f32(sum);
 }
+#endif
 
 void AnnSimulate(struct Ann *net) {
     int i, j, k;
@@ -310,6 +311,8 @@ void AnnSimulate(struct Ann *net) {
             float *o = net->layer[i].output;
 
             k = 0;
+
+#ifdef USE_AVX
             int psteps = (units-k)/8;
             for (int x = 0; x < psteps; x++) {
                 __m256 weights = _mm256_loadu_ps(w);
@@ -320,6 +323,7 @@ void AnnSimulate(struct Ann *net) {
                 o += 8;
             }
             k += 8*psteps;
+#endif
 
             /* Handle final piece shorter than 16 bytes. */
             for (; k < units; k++) {
@@ -331,25 +335,6 @@ void AnnSimulate(struct Ann *net) {
         }
     }
 }
-#else
-void AnnSimulate(struct Ann *net) {
-    int i, j, k;
-
-    for (i = net->layers-1; i > 0; i--) {
-        int nextunits = net->layer[i-1].units;
-        int units = net->layer[i].units;
-        if (i > 1) nextunits--; /* dont output on bias units */
-        for (j = 0; j < nextunits; j++) {
-            float A = 0, W;
-            for (k = 0; k < units; k++) {
-                W = WEIGHT(net, i, k, j);
-                A += W*OUTPUT(net, i, k);
-            }
-            OUTPUT(net, i-1, j) = sigmoid(A);
-        }
-    }
-}
-#endif
 
 /* Create a Tcl procedure that simulates the neural network */
 void Ann2Tcl(struct Ann *net) {
