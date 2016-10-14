@@ -549,13 +549,23 @@ void AnnCalculateGradients(struct Ann *net, float *desired) {
         for (i = 0; i < prevunits; i++) prev_layer->error[i] = 0;
         /* For every node in this layer ... */
         for (i = 0; i < units; i++) {
-            float error_signal, ei, oi;
+            float error_signal, ei, oi, derivative;
             int k;
 
-            /* Compute (d-o)*o*(1-o) */
+            /* Compute gradient. */
             ei = layer->error[i];
             oi = layer->output[i];
-            error_signal = ei*oi*(1-oi);
+
+            /* Common derivatives:
+             *
+             * identity: 1
+             * sigmoid: oi*(1-oi)
+             * softmax: oi*(1-oi)
+             * tanh:    (1-oi)*(1+oi), that's 1-(oi*oi)
+             * relu:    (oi > 0) ? 1 : 0
+             */
+            derivative = oi*(1-oi);
+            error_signal = ei*derivative;
 
             /* For every weight between this node and
              * the previous layer's nodes: */
