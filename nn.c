@@ -491,6 +491,17 @@ float AnnSimulateError(struct Ann *net, float *input, float *desired) {
     return AnnGlobalError(net, desired);
 }
 
+/* Compute the error vector y-t in the output unit. This error depends
+ * on the loss function we use. */
+void AnnCalculateOutputError(struct Ann *net, float *desired) {
+    int units = OUTPUT_UNITS(net);
+    float factor = (float)2/units;
+    for (int j = 0; j < units; j++) {
+        net->layer[0].error[j] =
+            factor * (net->layer[0].output[j] - desired[j]);
+    }
+}
+
 /* Calculate gradients with a trivial and slow algorithm, this
  * is useful to check that the real implementation is working
  * well, comparing the results.
@@ -529,10 +540,9 @@ void AnnCalculateGradientsTrivial(struct Ann *net, float *desired) {
 void AnnCalculateGradients(struct Ann *net, float *desired) {
     int j, layers = LAYERS(net)-1;
 
-    /* First we need to calculate the error for every output
-     * node. */
-    for (j = 0; j < OUTPUT_UNITS(net); j++)
-        net->layer[0].error[j] = net->layer[0].output[j] - desired[j];
+    /* Populate the error vector net->layer[0]->error according
+     * to the loss function. */
+    AnnCalculateOutputError(net,desired);
 
     /* Back-propagate the error and compute the gradient
      * for every weight in the net. */
