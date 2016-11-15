@@ -47,7 +47,7 @@ complex computer visions tasks like convolutional networks (it will
 score 2.3%, very far from the state of art!), nor Neural Redis implements
 the wonders of recurrent neural networks.
 
-However you'll be surpirsed by the number of tasks in which a simple
+However you'll be surprised by the number of tasks in which a simple
 neural network that can be trained in minutes, will be able to discover
 linear ad non linear correlations.
 
