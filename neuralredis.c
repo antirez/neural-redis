@@ -1300,12 +1300,6 @@ void NRTypeAofRewrite(RedisModuleIO *aof, RedisModuleString *key, void *value) {
 #endif
 }
 
-void NRTypeDigest(RedisModuleDigest *digest, void *value) {
-    UNUSED(digest);
-    UNUSED(value);
-    /* TODO: The DIGEST module interface is yet not implemented. */
-}
-
 void NRTypeFree(void *value) {
     NRTypeReleaseObject(value);
 }
@@ -1319,7 +1313,15 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"neuralredis",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    NRType = RedisModule_CreateDataType(ctx,"neural-NN",NR_RDB_ENC_VER,NRTypeRdbLoad,NRTypeRdbSave,NRTypeAofRewrite,NRTypeDigest,NRTypeFree);
+    RedisModuleTypeMethods tm = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = NRTypeRdbLoad,
+        .rdb_save = NRTypeRdbSave,
+        .aof_rewrite = NRTypeAofRewrite,
+        .free = NRTypeFree
+    };
+
+    NRType = RedisModule_CreateDataType(ctx,"neural-NN",NR_RDB_ENC_VER,&tm);
     if (NRType == NULL) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"nr.create",
