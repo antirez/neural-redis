@@ -894,16 +894,24 @@ void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, flo
 }
 
 /* Train the net */
-float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs, int setlen, int algo) {
+float AnnTrainWithAlgoFunc(struct Ann *net, float *input, float *desired, float maxerr,
+					int maxepochs, int setlen, AnnTrainAlgoFunc algo_func) {
     int i = 0;
     float e = maxerr+1;
 
     while (i++ < maxepochs && e >= maxerr) {
-        if (algo == NN_ALGO_BPROP) {
-            e = AnnResilientBPEpoch(net, input, desired, setlen);
-        } else if (algo == NN_ALGO_GD) {
-            e = AnnGDEpoch(net, input, desired, setlen);
-        }
+	e = (*algo_func)(net, input, desired, setlen);
     }
     return e;
+}
+	
+
+float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs,
+										int setlen, int algo) {
+    AnnTrainAlgoFunc algo_func;
+    if(algo == NN_ALGO_BPROP) algo_func = AnnResilientBPEpoch;
+    else if(algo == NN_ALGO_GD) algo_func = AnnGDEpoch;
+    else return -1;
+
+    return AnnTrainWithAlgoFunc(net, input, desired, maxerr, maxepochs, setlen, algo_func);
 }
