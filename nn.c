@@ -737,10 +737,23 @@ void AnnUpdateSgradient(struct Ann *net) {
     for (j = 1; j < layers; j++) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
-        /* In theory this is a good target for SSE "ADDPS" instructions,
-         * however modern compilers figure out this automatically. */
-        for (i = 0; i < weights; i++)
-            net->layer[j].sgradient[i] += net->layer[j].gradient[i];
+        float *sgradient = net->layer[j].sgradient;
+        float *gradient = net->layer[j].gradient;
+        i = 0;
+#ifdef USING_SIMD
+            int psteps = weights/SIMDF_SIZE;
+            for (int x = 0; x < psteps; x++) {
+                simdf_t sg = simdf_loadu(sgradient);
+                simdf_t g = simdf_loadu(gradient);
+                simdf_storeu(sgradient, simdf_add( sg, g));
+                sg += SIMDF_SIZE;
+                g += SIMDF_SIZE;
+            }
+            i += SIMDF_SIZE*psteps;
+#endif
+        /* Handle final piece shorter than SIMDF_SIZE . */
+        for (; i < weights; i++)
+            (*sgradient++) += (*gradient++);
     }
 }
 
