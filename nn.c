@@ -737,10 +737,23 @@ void AnnUpdateSgradient(struct Ann *net) {
     for (j = 1; j < layers; j++) {
         int units = UNITS(net, j);
         int weights = units * UNITS(net,j-1);
-        /* In theory this is a good target for SSE "ADDPS" instructions,
-         * however modern compilers figure out this automatically. */
-        for (i = 0; i < weights; i++)
-            net->layer[j].sgradient[i] += net->layer[j].gradient[i];
+        float *sgradient = net->layer[j].sgradient;
+        float *gradient = net->layer[j].gradient;
+        i = 0;
+#ifdef USING_SIMD
+            int psteps = weights/SIMDF_SIZE;
+            for (int x = 0; x < psteps; x++) {
+                simdf_t sg = simdf_loadu(sgradient);
+                simdf_t g = simdf_loadu(gradient);
+                simdf_storeu(sgradient, simdf_add( sg, g));
+                sg += SIMDF_SIZE;
+                g += SIMDF_SIZE;
+            }
+            i += SIMDF_SIZE*psteps;
+#endif
+        /* Handle final piece shorter than SIMDF_SIZE . */
+        for (; i < weights; i++)
+            (*sgradient++) += (*gradient++);
     }
 }
 
@@ -894,16 +907,24 @@ void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, flo
 }
 
 /* Train the net */
-float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs, int setlen, int algo) {
+float AnnTrainWithAlgoFunc(struct Ann *net, float *input, float *desired, float maxerr,
+					int maxepochs, int setlen, AnnTrainAlgoFunc algo_func) {
     int i = 0;
     float e = maxerr+1;
 
     while (i++ < maxepochs && e >= maxerr) {
-        if (algo == NN_ALGO_BPROP) {
-            e = AnnResilientBPEpoch(net, input, desired, setlen);
-        } else if (algo == NN_ALGO_GD) {
-            e = AnnGDEpoch(net, input, desired, setlen);
-        }
+	e = (*algo_func)(net, input, desired, setlen);
     }
     return e;
+}
+	
+
+float AnnTrain(struct Ann *net, float *input, float *desired, float maxerr, int maxepochs,
+										int setlen, int algo) {
+    AnnTrainAlgoFunc algo_func;
+    if(algo == NN_ALGO_BPROP) algo_func = AnnResilientBPEpoch;
+    else if(algo == NN_ALGO_GD) algo_func = AnnGDEpoch;
+    else return -1;
+
+    return AnnTrainWithAlgoFunc(net, input, desired, maxerr, maxepochs, setlen, algo_func);
 }

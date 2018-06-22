@@ -37,7 +37,6 @@
  * an arbitrary number of layers, with arbitrary units for layer.
  * Only fully connected feed-forward networks are supported. */
 struct AnnLayer {
-	int units;
 	float *output;		/* output[i], output of i-th unit */
 	float *error;		/* error[i], output error of i-th unit*/
 	float *weight;		/* weight[(i*units)+j] */
@@ -49,6 +48,7 @@ struct AnnLayer {
 				/* (t-1 sgradient for resilient BP) */
 	float *delta;		/* delta[(i*units)+j] cumulative update */
 				/* (per-weight delta for RPROP) */
+	int units;	/*moved to last position for alignment purposes*/
 };
 
 /* Feed forward network structure */
@@ -60,8 +60,11 @@ struct Ann {
 	float rprop_maxupdate;
 	float rprop_minupdate;
         float learn_rate; /* Used for GD training. */
+	float _filler_; /*filler for alignment*/
 	struct AnnLayer *layer;
 };
+
+typedef float (*AnnTrainAlgoFunc)(struct Ann *net, float *input, float *desired, int setlen);
 
 /* Raw interface to data structures */
 #define OUTPUT(net,l,i) (net)->layer[l].output[i]
@@ -131,6 +134,7 @@ float AnnBatchGDEpoch(struct Ann *net, float *input, float *desidered, int setle
 float AnnBatchGDMEpoch(struct Ann *net, float *input, float *desidered, int setlen);
 void AnnAdjustWeightsResilientBP(struct Ann *net);
 float AnnResilientBPEpoch(struct Ann *net, float *input, float *desidered, int setlen);
+float AnnTrainWithAlgoFunc(struct Ann *net, float *input, float *desidered, float maxerr, int maxepochs, int setlen, AnnTrainAlgoFunc algo_func);
 float AnnTrain(struct Ann *net, float *input, float *desidered, float maxerr, int maxepochs, int setlen, int algo);
 void AnnTestError(struct Ann *net, float *input, float *desired, int setlen, float *avgerr, float *classerr);
 
