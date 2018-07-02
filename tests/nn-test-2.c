@@ -10,22 +10,26 @@
 #include "../nn.h"
 
 int main(void) {
-    struct Ann *nn = AnnCreateNet3(2, 3, 1);
-    float inputs[8] = {0,0, 1,0, 0,1, 1,1};
-    float desired[4] = {0, 1, 1, 0};
+    AnnRprop *nn = AnnCreateNet3(2, 3, 1);
+    ann_float_t inputs[8] = {0,0, 1,0, 0,1, 1,1};
+    ann_float_t desired[4] = {0, 1, 1, 0};
 
     nn->learn_rate = 0.5;
 
     int j;
     for (j = 0; j < 100000; j++) {
-        float error = AnnTrain(nn, inputs, desired, 0, 1, 4, NN_ALGO_GD);
+        ann_float_t error = AnnTrain(nn, inputs, desired, 0, 1, 4, ANN_ALGO_GD);
         printf("Error: %f\n", error);
     }
     printf("\nAfter training:\n\n");
     for (j = 0; j < 4; j++) {
         AnnSetInput(nn,inputs+j*2);
         AnnSimulate(nn);
-        printf("%f\n", OUTPUT_NODE(nn,0));
+        printf("%f\n", ANN_OUTPUT_NODE(nn,0));
     }
+    printf("\nTCL simulation:\n\n");
+    Ann2Tcl(nn);
+    Ann2Js(nn);
+    AnnFree(nn);
     return 0;
 }

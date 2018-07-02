@@ -21,35 +21,45 @@ long long mstime(void) {
     return ust/1000;
 }
 
-void gen_dataset(struct Ann *nn, float **inputs, float **outputs, int setsize) {
-    *inputs = malloc(sizeof(float)*setsize*NUM_INPUTS);
-    *outputs = malloc(sizeof(float)*setsize*NUM_INPUTS);
-    int ilen = INPUT_UNITS(nn);
-    int olen = OUTPUT_UNITS(nn);
+int math_random(int low, int up) {
+  ann_float_t r = rand() * (1.0 / (RAND_MAX + 1.0));
+  r *= (up - low) + 1.0;
+  return (int)r+low;
+}
 
-    float *in = *inputs;
-    float *out = *outputs;
+void gen_dataset(AnnRprop *nn, ann_float_t **inputs, ann_float_t **outputs, int setsize) {
+    *inputs = calloc(1, sizeof(ann_float_t)*setsize*NUM_INPUTS);
+    *outputs = calloc(1, sizeof(ann_float_t)*setsize*NUM_OUTPUTS);
+    int ilen = ANN_INPUT_UNITS(nn);
+    int olen = ANN_OUTPUT_UNITS(nn);
+    int olen_1 = olen - 1;
+
+    ann_float_t *in = *inputs;
+    ann_float_t *out = *outputs;
     for (int j = 0; j < setsize; j++) {
         for (int k = 0; k < ilen; k++) in[k] = rand() & 1;
-        int r = rand() & olen;
-        for (int k = 0; k < olen; k++) {
-            out[k] = (k == r) ? 1 : 0;
-        }
+        //int r = rand() & olen_1;
+        int r = math_random(0, olen_1);
+		out[r] = 1; 
+		//printf("%d : %d\n", j, r);
+        //for (int k = 0; k < olen; k++) {
+        //    out[k] = (k == r) ? 1 : 0;
+        //}
         in+= ilen;
         out+= olen;
     }
 }
 
 int main(void) {
-    struct Ann *nn = AnnCreateNet3(NUM_INPUTS, NUM_INPUTS*2, NUM_OUTPUTS);
-    float *inputs, *outputs;
+    AnnRprop *nn = AnnCreateNet3(NUM_INPUTS, NUM_INPUTS*2, NUM_OUTPUTS);
+    ann_float_t *inputs, *outputs;
     int setsize = 1000;
 
     nn->learn_rate = 0.5;
     gen_dataset(nn, &inputs, &outputs, setsize);
 
     int j;
-    float classerr = 100;
+    ann_float_t classerr = 100;
     long long totaltime = 0;
     int benchmark_milestone = 0;
     for (j = 0; j < 1000000; j++) {
@@ -60,11 +70,12 @@ int main(void) {
             benchmark_milestone = 1;
         }
         long long start = mstime();
-        AnnTrain(nn,inputs,outputs,0,1,setsize,NN_ALGO_BPROP);
+        AnnTrain(nn,inputs,outputs,0,1,setsize,ANN_ALGO_BPROP);
         long long elapsed = mstime() - start;
         totaltime += elapsed;
 
         AnnTestError(nn,inputs,outputs,setsize,NULL,&classerr);
     }
+    AnnFree(nn);
     return 0;
 }

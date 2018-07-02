@@ -10,34 +10,36 @@
 #include "../nn.h"
 
 int main(void) {
-    struct Ann *nn = AnnCreateNet3(2, 2, 2);
-    float inputs[2] = {.05,.10};
-    float desired[2] = {.01,.99};
+    AnnRprop *nn = AnnCreateNet3(2, 2, 2);
+    ann_float_t inputs[2] = {.05,.10};
+    ann_float_t desired[2] = {.01,.99};
 
     nn->learn_rate = 0.5;
 
     /* Input layer. */
-    WEIGHT(nn,2,0,0) = .15;
-    WEIGHT(nn,2,0,1) = .25;
+    ANN_WEIGHT(nn,2,0,0) = .15;
+    ANN_WEIGHT(nn,2,0,1) = .25;
 
-    WEIGHT(nn,2,1,0) = .20;
-    WEIGHT(nn,2,1,1) = .30;
+    ANN_WEIGHT(nn,2,1,0) = .20;
+    ANN_WEIGHT(nn,2,1,1) = .30;
 
-    WEIGHT(nn,2,2,0) = .35;
-    WEIGHT(nn,2,2,1) = .35;
+    ANN_WEIGHT(nn,2,2,0) = .35;
+    ANN_WEIGHT(nn,2,2,1) = .36;
 
-    INPUT_NODE(nn,0) = inputs[0];
-    INPUT_NODE(nn,1) = inputs[1];
+    ANN_INPUT_NODE(nn,0) = inputs[0];
+    ANN_INPUT_NODE(nn,1) = inputs[1];
 
     /* Hidden layer. */
-    WEIGHT(nn,1,0,0) = .40;
-    WEIGHT(nn,1,0,1) = .50;
+    ANN_WEIGHT(nn,1,0,0) = .40;
+    ANN_WEIGHT(nn,1,0,1) = .50;
 
-    WEIGHT(nn,1,1,0) = .45;
-    WEIGHT(nn,1,1,1) = .55;
+    ANN_WEIGHT(nn,1,1,0) = .45;
+    ANN_WEIGHT(nn,1,1,1) = .55;
 
-    WEIGHT(nn,1,2,0) = .60;
-    WEIGHT(nn,1,2,1) = .60;
+    ANN_WEIGHT(nn,1,2,0) = .60;
+    ANN_WEIGHT(nn,1,2,1) = .61;
+
+    AnnPrint(nn);
 
     int j;
     for (j = 0; j < 10000; j++) {
@@ -56,5 +58,10 @@ int main(void) {
     }
     printf("\nAfter training:\n\n");
     AnnPrint(nn);
+    printf("\nTCL simulation:\n\n");
+    Ann2Tcl(nn);
+    Ann2Js(nn);
+
+    AnnFree(nn);
     return 0;
 }
