@@ -95,7 +95,7 @@ To create a new neural network we use the following command:
     (integer) 13
 
 The command creates a neural network, configured for regression tasks
-(as opposed to classification: well'll explain what this means
+(as opposed to classification: we'll explain what this means
 in the course of this tutorial).
 
 Note that the command replied with "13". It means that the network
