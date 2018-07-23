@@ -47,7 +47,7 @@ complex computer visions tasks like convolutional networks (it will
 score 2.3%, very far from the state of art!), nor Neural Redis implements
 the wonders of recurrent neural networks.
 
-However you'll be surpirsed by the number of tasks in which a simple
+However you'll be surprised by the number of tasks in which a simple
 neural network that can be trained in minutes, will be able to discover
 linear ad non linear correlations.
 
@@ -77,7 +77,7 @@ more than 1000 lines of C code composing this extension, and this
 README file, in roughly two days.
 
 Note that this implementation may be hugely improved. For instance
-currently only the sigmoid activaction function and the root mean
+currently only the sigmoid activation function and the root mean
 square loss functions are supported: while for the problems this
 module is willing to address this limited neural network implementation
 is showing to be quite flexible, it is possible to do much better
@@ -282,7 +282,7 @@ outputs directly the class ID, and is called `NR.CLASS`:
     > NR.CLASS mynet 0 1 1 0 1
     (integer) 0
 
-However note that ofter `NR.RUN` is useful for classification problems.
+However note that often `NR.RUN` is useful for classification problems.
 For example a blogging platform may want to train a neural network to
 predict the template that will appeal more to the user, based on the
 registration data we just obtained, that include the country, sex, age
@@ -381,7 +381,7 @@ command so that it will be possible to change this things on the fly.
 
 Also note that since we defined a testing dataset maximum size to be half
 the one of the training dataset (1000 vs 500), `NR.OBSERVE` will automatically
-put one third of the entires in the testing dataset.
+put one third of the entries in the testing dataset.
 
 If you check the Ruby program that implements this example inside the
 source distribution, you'll see how data is fed directly as it is
@@ -484,7 +484,7 @@ The network was trained for 0.29 seconds. At the end of the training,
 that was stopped for overfitting, the error rate in the testing dataset
 was 19%.
 
-You can also specify to train for a given amonut of seconds or cycles.
+You can also specify to train for a given amount of seconds or cycles.
 For now we just use the `AUTOSTOP` feature since it is simpler. However we'll
 dig into more details in the next section.
 
@@ -934,7 +934,7 @@ there are no cycles limits. If no milliseconds are specified, the limit is
 set to 10000 milliseconds (10 seconds).
 
 If AUTOSTOP is specified, the training will still stop when the maximum 
-umber of cycles or milliseconds is specified, but will also try to stop
+number of cycles or milliseconds is specified, but will also try to stop
 the training if overfitting is detected. Check the previous sections for
 a description of the (still naive) algorithm the implementation uses in
 order to stop.
