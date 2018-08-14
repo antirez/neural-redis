@@ -72,7 +72,7 @@ easily crash the Redis server. Also note that currently only
 RDB persistence is implemented in the module, while AOF rewrite
 is not implemented at all. Use at your own risk.
 
-If you are not still scared enough, please consider that I wrote the
+If you are still not scared enough, please consider that I wrote the
 more than 1000 lines of C code composing this extension, and this
 README file, in roughly two days.
 
@@ -120,8 +120,8 @@ is used in order to detect if the network is able to generalize, that is,
 is really able to understand how to approximate a given function.
 At the same time, the testing dataset is useful to avoid to train the network
 too much, a problem known as *overfitting*. Overfitting means that the
-network becomes too much specific, at the point to be only capable of replying
-correctly to the inputs and outputs it was presented with.
+network becomes too specific, to the point of only being capable of replying
+correctly to the inputs it was trained on.
 
 Now it is time to provide the network with some data, so that it can learn
 the function we want to approximate:
@@ -282,10 +282,10 @@ outputs directly the class ID, and is called `NR.CLASS`:
     > NR.CLASS mynet 0 1 1 0 1
     (integer) 0
 
-However note that ofter `NR.RUN` is useful for classification problems.
+However, note that often `NR.RUN` is useful for classification problems.
 For example a blogging platform may want to train a neural network to
 predict the template that will appeal more to the user, based on the
-registration data we just obtained, that include the country, sex, age
+registration data we just obtained, that includes the country, sex, age
 and category of the blog.
 
 While the prediction of the network will be the output with the highest
@@ -295,11 +295,11 @@ highest output value and so forth.
 
 Before diving into a practical classification example, there is a last
 thing to say. Networks of type CLASSIFIER are also trained in a different
-way: instead of giving as output a list of zeros and ones you directly
-provide to `NR.OBSERVE` the class ID as a number, so in the example
+way: instead of giving as output a list of zeros and ones, you can simply
+provide to `NR.OBSERVE` the class ID as a number. So in the example
 of the jars, we don't need to write `NR.OBSERVE 1 0.4 .2 0 1 -> 0 0 1` to
-specify as output of the provided data sample the third class, but
-we should just write:
+specify as output of the provided data sample the third class,
+we can just write:
 
     > NR.OBSERVE mynet 1 0.4 .2 0 1 -> 2
 
@@ -323,12 +323,12 @@ variables, if a specific person is going to survive or not, so this
 is a classification task, where we label persons with two different
 labels: survived or died.
 
-This problem is pretty similar, even if a bit more scaring, than the
+This problem is pretty similar, even if a bit more gruesome, to the
 problem of labeling users or predicting their response in some web
 application according to their behavior and the other data we collected
 in the past (hint: machine learning is all about collecting data...).
 
-In the CSV there are a number of information about each passenger,
+In the CSV there are a number of pieces of information about each passenger,
 but here in order to make the example simpler we'll use just the
 following fields:
 
@@ -344,9 +344,8 @@ ability to survive, our neural network should find it.
 
 Note that while we have six inputs, we'll need a total network
 with 9 total inputs, since sex and ticket class, are actually
-*input classes*, so like we did in the output, we'll need to
-do in the input. Each input will signal if the passenger is in
-one of the possible classes. This are our nine inputs:
+*input classes*. Each input will signal if the passenger is in
+one of the possible classes. These are our nine inputs:
 
 * Is male? (0 or 1).
 * Is Female? (0 or 1).
@@ -454,7 +453,7 @@ of `NR.INFO` will look like this:
     29) overfitting-detected
     30) no
 
-As expected, we have 401 training items and 200 testing dataset.
+As expected, we have 401 training items and 200 testing items in the dataset.
 Note that for networks declared as classifiers, we have an additional
 field in the info output, which is `classification-errors-perc`. Once
 we train the network this field will be populated with the percentage (from
@@ -525,19 +524,18 @@ And if she traveled in third class with a very cheap ticket?
 This time is 50% and 50%... Throw your coin.
 
 The gist of this example is that, many problems you face as a developer
-in order to optimize your application and do better choices in the
-interaction with your users, are Titanic problems, but not in their
-size, just in the fact that a simple model can "solve" them.
+optimizing user interactions in your application, are Titanic problems,
+but not in their size, just in the fact that a simple model can "solve" them.
 
 Overfitting detection and training tricks
 ===
 
 One thing that makes neural networks hard to use in an interactive
-way like the one they are proposed in this Redis module, is for sure
-overfitting. If you train too much, the neural network ends to be
-like that one student that can exactly tell you all the words in the
-lesson, but if you ask a more generic question about the argument she
-or he just wonders and can't reply.
+way like the one we propose in this Redis module, is 
+overfitting. If you train too much, the neural network ends up being
+like that one student that can exactly recall all the words in the
+lesson, but is dumbfounded when you ask a more generic question about
+the argument.
 
 So the `NR.TRAIN` command `AUTOSTOP` option attempts to detect
 overfitting to stop the training before it's too late. How is this
@@ -604,9 +602,9 @@ never saw before, that is the testing dataset, is greater at 0.20!
 
 And indeed, it classifies in a wrong way 21% of entries instead of 18.50%.
 
-However it's not always like that, so to test things manually is a good
+However it's not always like that, so testing things manually is a good
 idea when working at machine learning experiments, especially with this
-module that is experimental.
+module because it's experimental.
 
 An interesting example is the `iris.rb` program inside the `examples`
 directory: it will load the `Iris.csv` dataset into Redis, which is
@@ -921,9 +919,9 @@ Like `NR.RUN` but can be used only with NNs of type CLASSIFIER. Instead of outpu
 
 ## NR.TRAIN key [MAXCYCLES count] [MAXTIME milliseconds] [AUTOSTOP] [BACKTRACK]
 
-Train a network in a background thread. When the training finishes
-automatically updates the weights of the trained networks with the
-new ones and updates the training statistics.
+Train a network in a background thread. When the training finishes,
+automatically update the weights of the trained networks with the
+new ones and update the training statistics.
 
 The command works with a copy of the network, so it is possible to
 use the network while it is undergoing a training.
@@ -934,7 +932,7 @@ there are no cycles limits. If no milliseconds are specified, the limit is
 set to 10000 milliseconds (10 seconds).
 
 If AUTOSTOP is specified, the training will still stop when the maximum 
-umber of cycles or milliseconds is specified, but will also try to stop
+number of cycles or milliseconds is specified, but will also try to stop
 the training if overfitting is detected. Check the previous sections for
 a description of the (still naive) algorithm the implementation uses in
 order to stop.
@@ -947,7 +945,7 @@ if it is found to have a smaller error.
 
 ## NR.INFO key
 
-Show many internal information about the neural network. Just try it :-)
+Show a lot of internal information about the neural network. Just try it :-)
 
 ## NR.THREADS
 
@@ -964,7 +962,7 @@ Contributing
 ===
 
 The main aim of Neural Redis, which is currently just a 48h personal
-hackatlon, is to show the potential that there is in an accessible API
+hackathon, is to show the potential that there is in an accessible API
 that provides a simple to use machine learning tool, that can be used
 and trained interactively.
 
@@ -974,11 +972,10 @@ or ideas. One thing that I want to retain is the simplicity of the outer
 layer: the API. However the techniques used in the internals can be more
 complex in order to improve the results.
 
-There is to note that, given the API exported, the implementation of
-the neural network should be, more than state of art in solving a specific
-problem, more designed in order to work well enough in a large set of
-conditions. While the current fully connected network has its limits,
-it together with BPROP learning shows to be quite resistant to misuses.
+One thing to note is that, given the API exported, the implementation of
+the neural network should prioritize working well enough in a large set of
+conditions over producing state of art results for a specific problem. While the 
+current fully connected network has its limits, it together with BPROP learning shows to be quite resistant to misuses.
 So an improved version should be able to retain, and extend this quality.
 The simplest way to guarantee this is to have a set of benchmarks of different
 types using open datasets, and to score different implementations against
