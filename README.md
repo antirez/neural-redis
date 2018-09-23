@@ -209,7 +209,7 @@ ones.
 
 We can also see that the network was trained with 1344 steps for 0 seconds
 (just a few milliseconds). Each step is the training performed with a single
-data item, so the same 6 items were presented to the network for 244 cycles
+data item, so the same 6 items were presented to the network for 224 cycles
 in total.
 
 A few words about normalization

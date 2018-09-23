@@ -104,7 +104,7 @@ typedef struct {
     float *onorm;          /* Outputs normalization factors. */
 } NRTypeObject;
 
-struct {
+typedef struct {
     RedisModuleString *key; /* Key name of the NN we are training.
                                Set to NULL for unused slots. */
     int db_id;              /* DB ID where the key is. */
@@ -115,7 +115,7 @@ struct {
     float test_error;       /* Test error in the last cycle. */
     float class_error;      /* Percentage of wrong classifications. */
     int curcycle;           /* Current cycle. */
-} typedef NRPendingTraining;
+} NRPendingTraining;
 
 /* We take an array with NNs currently training in other threads.
  * Every time an NN command is called, we try to see if there are
