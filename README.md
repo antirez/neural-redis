@@ -49,7 +49,7 @@ the wonders of recurrent neural networks.
 
 However you'll be surpirsed by the number of tasks in which a simple
 neural network that can be trained in minutes, will be able to discover
-linear ad non linear correlations.
+linear and non linear correlations.
 
 Loading the extension
 ===
